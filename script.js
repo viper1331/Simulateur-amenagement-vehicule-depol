@@ -16,6 +16,26 @@ const chassisCatalog = [
     ptac: 16000,
     wheelbase: 4.3,
     frontAxleOffset: 1.3,
+    payload: null,
+    maxTowableBraked: null,
+    maxAuthorizedWeight: null,
+    overallWidthMirrors: null,
+    heightUnladen: null,
+    groundClearanceLoaded: null,
+    floorHeightUnladen: null,
+    overallLengthMM: null,
+    overallWidthMM: null,
+    overallHeightMM: null,
+    maxLoadingLength: null,
+    rearOverhang: null,
+    heightWithRack: null,
+    frontOverhang: null,
+    rearOpeningHeight: null,
+    cargoVolume: null,
+    interiorWidthWheelarches: null,
+    sideDoorEntryWidth: null,
+    rearDoorLowerEntryWidth: null,
+    interiorHeight: null,
     color: 0x8c9aa8
   },
   {
@@ -28,6 +48,26 @@ const chassisCatalog = [
     ptac: 19000,
     wheelbase: 4.6,
     frontAxleOffset: 1.45,
+    payload: null,
+    maxTowableBraked: null,
+    maxAuthorizedWeight: null,
+    overallWidthMirrors: null,
+    heightUnladen: null,
+    groundClearanceLoaded: null,
+    floorHeightUnladen: null,
+    overallLengthMM: null,
+    overallWidthMM: null,
+    overallHeightMM: null,
+    maxLoadingLength: null,
+    rearOverhang: null,
+    heightWithRack: null,
+    frontOverhang: null,
+    rearOpeningHeight: null,
+    cargoVolume: null,
+    interiorWidthWheelarches: null,
+    sideDoorEntryWidth: null,
+    rearDoorLowerEntryWidth: null,
+    interiorHeight: null,
     color: 0x9fa8b5
   },
   {
@@ -40,6 +80,26 @@ const chassisCatalog = [
     ptac: 26000,
     wheelbase: 5.1,
     frontAxleOffset: 1.6,
+    payload: null,
+    maxTowableBraked: null,
+    maxAuthorizedWeight: null,
+    overallWidthMirrors: null,
+    heightUnladen: null,
+    groundClearanceLoaded: null,
+    floorHeightUnladen: null,
+    overallLengthMM: null,
+    overallWidthMM: null,
+    overallHeightMM: null,
+    maxLoadingLength: null,
+    rearOverhang: null,
+    heightWithRack: null,
+    frontOverhang: null,
+    rearOpeningHeight: null,
+    cargoVolume: null,
+    interiorWidthWheelarches: null,
+    sideDoorEntryWidth: null,
+    rearDoorLowerEntryWidth: null,
+    interiorHeight: null,
     color: 0x8d939c
   }
 ];
@@ -127,6 +187,21 @@ function parseNumberField(value, label, { min = -Infinity, max = Infinity } = {}
   return numberValue;
 }
 
+function parseOptionalNumberField(value, label, options) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  return parseNumberField(value, label, options);
+}
+
+function toNullableNumber(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
 function parseColorValue(value, fallback) {
   if (!value) return fallback;
   const sanitized = value.trim().replace('#', '').toLowerCase();
@@ -147,6 +222,26 @@ function sanitizeChassisDefinition(definition) {
     ptac: Number(definition.ptac) || 0,
     wheelbase: Number(definition.wheelbase) || 1,
     frontAxleOffset: Number(definition.frontAxleOffset) || 0,
+    payload: toNullableNumber(definition.payload),
+    maxTowableBraked: toNullableNumber(definition.maxTowableBraked),
+    maxAuthorizedWeight: toNullableNumber(definition.maxAuthorizedWeight),
+    overallWidthMirrors: toNullableNumber(definition.overallWidthMirrors),
+    heightUnladen: toNullableNumber(definition.heightUnladen),
+    groundClearanceLoaded: toNullableNumber(definition.groundClearanceLoaded),
+    floorHeightUnladen: toNullableNumber(definition.floorHeightUnladen),
+    overallLengthMM: toNullableNumber(definition.overallLengthMM),
+    overallWidthMM: toNullableNumber(definition.overallWidthMM),
+    overallHeightMM: toNullableNumber(definition.overallHeightMM),
+    maxLoadingLength: toNullableNumber(definition.maxLoadingLength),
+    rearOverhang: toNullableNumber(definition.rearOverhang),
+    heightWithRack: toNullableNumber(definition.heightWithRack),
+    frontOverhang: toNullableNumber(definition.frontOverhang),
+    rearOpeningHeight: toNullableNumber(definition.rearOpeningHeight),
+    cargoVolume: toNullableNumber(definition.cargoVolume),
+    interiorWidthWheelarches: toNullableNumber(definition.interiorWidthWheelarches),
+    sideDoorEntryWidth: toNullableNumber(definition.sideDoorEntryWidth),
+    rearDoorLowerEntryWidth: toNullableNumber(definition.rearDoorLowerEntryWidth),
+    interiorHeight: toNullableNumber(definition.interiorHeight),
     color: definition.color !== undefined ? definition.color : 0x8d939c,
     isCustom: definition.isCustom !== undefined ? definition.isCustom : true
   };
@@ -564,6 +659,26 @@ function handleCustomChassisSubmit(event) {
     const ptac = parseNumberField(data.get('ptac'), 'PTAC', { min: 0 });
     const wheelbase = parseNumberField(data.get('wheelbase'), 'Empattement', { min: 1, max: length });
     const frontAxleOffset = parseNumberField(data.get('frontAxleOffset'), 'Décalage essieu avant', { min: 0, max: length / 2 });
+    const payload = parseOptionalNumberField(data.get('payload'), 'Charge utile', { min: 0 });
+    const maxTowableBraked = parseOptionalNumberField(data.get('maxTowableBraked'), 'Poids maxi remorquable freiné', { min: 0 });
+    const maxAuthorizedWeight = parseOptionalNumberField(data.get('maxAuthorizedWeight'), 'Poids maxi autorisé', { min: 0 });
+    const overallWidthMirrors = parseOptionalNumberField(data.get('overallWidthMirrors'), 'Largeur hors tout avec rétroviseurs', { min: 0 });
+    const heightUnladen = parseOptionalNumberField(data.get('heightUnladen'), 'Hauteur à vide', { min: 0 });
+    const groundClearanceLoaded = parseOptionalNumberField(data.get('groundClearanceLoaded'), 'Garde au sol en charge', { min: 0 });
+    const floorHeightUnladen = parseOptionalNumberField(data.get('floorHeightUnladen'), 'Hauteur seuil à vide', { min: 0 });
+    const overallLengthMM = parseOptionalNumberField(data.get('overallLengthMM'), 'Longueur hors tout (mm)', { min: 0 });
+    const overallWidthMM = parseOptionalNumberField(data.get('overallWidthMM'), 'Largeur hors tout (mm)', { min: 0 });
+    const overallHeightMM = parseOptionalNumberField(data.get('overallHeightMM'), 'Hauteur hors tout (mm)', { min: 0 });
+    const maxLoadingLength = parseOptionalNumberField(data.get('maxLoadingLength'), 'Longueur de chargement maxi', { min: 0 });
+    const rearOverhang = parseOptionalNumberField(data.get('rearOverhang'), 'Porte à faux arrière', { min: 0 });
+    const heightWithRack = parseOptionalNumberField(data.get('heightWithRack'), 'Hauteur à vide avec galerie', { min: 0 });
+    const frontOverhang = parseOptionalNumberField(data.get('frontOverhang'), 'Porte à faux avant', { min: 0 });
+    const rearOpeningHeight = parseOptionalNumberField(data.get('rearOpeningHeight'), 'Hauteur ouverture arrière', { min: 0 });
+    const cargoVolume = parseOptionalNumberField(data.get('cargoVolume'), 'Volume de chargement', { min: 0 });
+    const interiorWidthWheelarches = parseOptionalNumberField(data.get('interiorWidthWheelarches'), 'Largeur intérieure entre passage de roues', { min: 0 });
+    const sideDoorEntryWidth = parseOptionalNumberField(data.get('sideDoorEntryWidth'), 'Largeur entrée porte latérale coulissante', { min: 0 });
+    const rearDoorLowerEntryWidth = parseOptionalNumberField(data.get('rearDoorLowerEntryWidth'), "Largeur d'entrée inférieure de porte(s) arrière(s)", { min: 0 });
+    const interiorHeight = parseOptionalNumberField(data.get('interiorHeight'), 'Hauteur intérieure sous pavillon', { min: 0 });
     const color = parseColorValue(data.get('color'), 0x6b7a8f);
     const id = `custom-chassis-${Date.now()}`;
     const chassis = addChassisDefinition({
@@ -576,6 +691,26 @@ function handleCustomChassisSubmit(event) {
       ptac,
       wheelbase,
       frontAxleOffset,
+      payload,
+      maxTowableBraked,
+      maxAuthorizedWeight,
+      overallWidthMirrors,
+      heightUnladen,
+      groundClearanceLoaded,
+      floorHeightUnladen,
+      overallLengthMM,
+      overallWidthMM,
+      overallHeightMM,
+      maxLoadingLength,
+      rearOverhang,
+      heightWithRack,
+      frontOverhang,
+      rearOpeningHeight,
+      cargoVolume,
+      interiorWidthWheelarches,
+      sideDoorEntryWidth,
+      rearDoorLowerEntryWidth,
+      interiorHeight,
       color,
       isCustom: true
     });

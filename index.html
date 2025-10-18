@@ -51,7 +51,7 @@
               <input id="chassis-height" name="height" type="number" min="0.5" step="0.01" required>
             </div>
             <div class="form-row">
-              <label for="chassis-mass-input">Masse à vide (kg)</label>
+              <label for="chassis-mass-input">Poids à vide (MVODM) (kg)</label>
               <input id="chassis-mass-input" name="mass" type="number" min="0" step="10" required>
             </div>
             <div class="form-row">
@@ -65,6 +65,88 @@
             <div class="form-row">
               <label for="chassis-front-axle">Décalage essieu AV (m)</label>
               <input id="chassis-front-axle" name="frontAxleOffset" type="number" min="0" step="0.01" required>
+            </div>
+            <div class="form-divider">Capacités</div>
+            <div class="form-row">
+              <label for="chassis-payload">Charge utile (kg)</label>
+              <input id="chassis-payload" name="payload" type="number" min="0" step="10">
+            </div>
+            <div class="form-row">
+              <label for="chassis-max-towable">Poids maxi remorquable freiné (kg)</label>
+              <input id="chassis-max-towable" name="maxTowableBraked" type="number" min="0" step="10">
+            </div>
+            <div class="form-row">
+              <label for="chassis-max-authorized">Poids maxi autorisé (kg)</label>
+              <input id="chassis-max-authorized" name="maxAuthorizedWeight" type="number" min="0" step="10">
+            </div>
+            <div class="form-divider">Dimensions</div>
+            <div class="form-row">
+              <label for="chassis-overall-width-mirrors">Largeur hors tout avec rétroviseurs extérieurs (mm)</label>
+              <input id="chassis-overall-width-mirrors" name="overallWidthMirrors" type="number" min="0" step="1">
+            </div>
+            <div class="form-row">
+              <label for="chassis-height-unladen">Hauteur à vide (mm)</label>
+              <input id="chassis-height-unladen" name="heightUnladen" type="number" min="0" step="1">
+            </div>
+            <div class="form-row">
+              <label for="chassis-ground-clearance">Garde au sol en charge (mm)</label>
+              <input id="chassis-ground-clearance" name="groundClearanceLoaded" type="number" min="0" step="1">
+            </div>
+            <div class="form-row">
+              <label for="chassis-floor-height">Hauteur seuil à vide (mm)</label>
+              <input id="chassis-floor-height" name="floorHeightUnladen" type="number" min="0" step="1">
+            </div>
+            <div class="form-row">
+              <label for="chassis-overall-length-mm">Longueur hors tout (mm)</label>
+              <input id="chassis-overall-length-mm" name="overallLengthMM" type="number" min="0" step="1">
+            </div>
+            <div class="form-row">
+              <label for="chassis-overall-width-mm">Largeur hors tout (mm)</label>
+              <input id="chassis-overall-width-mm" name="overallWidthMM" type="number" min="0" step="1">
+            </div>
+            <div class="form-row">
+              <label for="chassis-overall-height-mm">Hauteur hors tout (mm)</label>
+              <input id="chassis-overall-height-mm" name="overallHeightMM" type="number" min="0" step="1">
+            </div>
+            <div class="form-row">
+              <label for="chassis-max-loading-length">Longueur de chargement maxi (mm)</label>
+              <input id="chassis-max-loading-length" name="maxLoadingLength" type="number" min="0" step="1">
+            </div>
+            <div class="form-row">
+              <label for="chassis-rear-overhang">Porte à faux arrière (mm)</label>
+              <input id="chassis-rear-overhang" name="rearOverhang" type="number" min="0" step="1">
+            </div>
+            <div class="form-row">
+              <label for="chassis-height-with-rack">Hauteur à vide avec galerie (mm)</label>
+              <input id="chassis-height-with-rack" name="heightWithRack" type="number" min="0" step="1">
+            </div>
+            <div class="form-row">
+              <label for="chassis-front-overhang">Porte à faux avant (mm)</label>
+              <input id="chassis-front-overhang" name="frontOverhang" type="number" min="0" step="1">
+            </div>
+            <div class="form-row">
+              <label for="chassis-rear-opening-height">Hauteur ouverture arrière (mm)</label>
+              <input id="chassis-rear-opening-height" name="rearOpeningHeight" type="number" min="0" step="1">
+            </div>
+            <div class="form-row">
+              <label for="chassis-cargo-volume">Volume de chargement (m³)</label>
+              <input id="chassis-cargo-volume" name="cargoVolume" type="number" min="0" step="0.01">
+            </div>
+            <div class="form-row">
+              <label for="chassis-interior-width">Largeur intérieure entre passage de roues (mm)</label>
+              <input id="chassis-interior-width" name="interiorWidthWheelarches" type="number" min="0" step="1">
+            </div>
+            <div class="form-row">
+              <label for="chassis-side-door-width">Largeur entrée porte latérale coulissante (mm)</label>
+              <input id="chassis-side-door-width" name="sideDoorEntryWidth" type="number" min="0" step="1">
+            </div>
+            <div class="form-row">
+              <label for="chassis-rear-door-lower-width">Largeur d'entrée inférieure de porte(s) arrière(s) (mm)</label>
+              <input id="chassis-rear-door-lower-width" name="rearDoorLowerEntryWidth" type="number" min="0" step="1">
+            </div>
+            <div class="form-row">
+              <label for="chassis-interior-height">Hauteur intérieure sous pavillon (mm)</label>
+              <input id="chassis-interior-height" name="interiorHeight" type="number" min="0" step="1">
             </div>
             <div class="form-row">
               <label for="chassis-color">Couleur</label>
