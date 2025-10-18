@@ -64,6 +64,29 @@ button.ghost:hover {
   background: rgba(255, 255, 255, 0.08);
 }
 
+button.danger {
+  background: var(--alert-error);
+  color: #fff;
+}
+
+button.danger:hover {
+  background: #e33b40;
+}
+
+button.ghost.danger {
+  color: var(--alert-error);
+  border-color: rgba(255, 77, 79, 0.5);
+}
+
+button.ghost.danger:hover {
+  background: rgba(255, 77, 79, 0.15);
+}
+
+button.compact {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.75rem;
+}
+
 #app {
   display: flex;
   flex-direction: column;
@@ -515,12 +538,35 @@ input[type="range"] {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 0.4rem;
 }
 
 #module-list li.selected {
   border-left: 3px solid var(--accent);
   padding-left: 0.7rem;
   background: rgba(62, 166, 255, 0.18);
+}
+
+.module-list-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.module-list-actions {
+  display: flex;
+  gap: 0.3rem;
+}
+
+#module-list li button {
+  margin: 0;
+}
+
+#module-list li.module-list-empty {
+  justify-content: center;
+  color: var(--muted);
+  font-style: italic;
 }
 
 .viewport {

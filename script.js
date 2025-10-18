@@ -19,6 +19,7 @@ const chassisCatalog = [
     ptac: 16000,
     wheelbase: 4.3,
     frontAxleOffset: 1.3,
+    isCustom: false,
     payload: null,
     maxTowableBraked: null,
     maxAuthorizedWeight: null,
@@ -51,6 +52,7 @@ const chassisCatalog = [
     ptac: 19000,
     wheelbase: 4.6,
     frontAxleOffset: 1.45,
+    isCustom: false,
     payload: null,
     maxTowableBraked: null,
     maxAuthorizedWeight: null,
@@ -83,6 +85,7 @@ const chassisCatalog = [
     ptac: 26000,
     wheelbase: 5.1,
     frontAxleOffset: 1.6,
+    isCustom: false,
     payload: null,
     maxTowableBraked: null,
     maxAuthorizedWeight: null,
@@ -561,6 +564,10 @@ function sanitizeChassisDefinition(definition) {
   return sanitized;
 }
 
+function isCustomChassis(chassis) {
+  return Boolean(chassis && chassis.isCustom);
+}
+
 function pickFirstFinite(values, fallback) {
   for (const value of values) {
     if (Number.isFinite(value)) {
@@ -747,6 +754,10 @@ function sanitizeModuleDefinition(definition, libraryMeta = null) {
   return sanitized;
 }
 
+function isCustomModuleDefinition(definition) {
+  return Boolean(definition && (definition.isCustom || definition.libraryId === CUSTOM_MODULE_LIBRARY.id));
+}
+
 function addChassisDefinition(definition) {
   const sanitized = sanitizeChassisDefinition(definition);
   const index = chassisCatalog.findIndex((item) => item.id === sanitized.id);
@@ -757,6 +768,40 @@ function addChassisDefinition(definition) {
   }
   populateChassisOptions(sanitized.id);
   return sanitized;
+}
+
+function removeChassisDefinition(chassisId) {
+  if (!chassisId) return false;
+  const index = chassisCatalog.findIndex((item) => item.id === chassisId);
+  if (index === -1) return false;
+  const target = chassisCatalog[index];
+  if (!isCustomChassis(target)) return false;
+  if (chassisCatalog.length <= 1) return false;
+  const [removed] = chassisCatalog.splice(index, 1);
+  if (ui.chassisForm && ui.chassisForm.dataset.mode === 'edit' && ui.chassisForm.dataset.targetId === chassisId) {
+    resetChassisFormState();
+    closeInlineForm(ui.btnAddChassis, ui.chassisForm, true);
+  }
+  const next = populateChassisOptions();
+  if (next) {
+    applyChassis(next);
+  } else {
+    if (state.chassisMesh) {
+      chassisGroup.remove(state.chassisMesh);
+      state.chassisMesh.geometry.dispose();
+      state.chassisMesh.material.dispose();
+      state.chassisMesh = null;
+    }
+    state.chassisData = null;
+    if (ui.chassisPtac) ui.chassisPtac.textContent = '-';
+    if (ui.chassisWheelbase) ui.chassisWheelbase.textContent = '-';
+    if (ui.chassisMass) ui.chassisMass.textContent = '-';
+    if (ui.chassisDims) ui.chassisDims.textContent = '-';
+    updateAnalysis();
+  }
+  updateChassisActionState();
+  pushHistory();
+  return removed;
 }
 
 function addModuleDefinition(definition, libraryMeta = null) {
@@ -770,6 +815,32 @@ function addModuleDefinition(definition, libraryMeta = null) {
   populateModuleButtons();
   updateModuleLibrarySummary();
   return moduleCatalog[index !== -1 ? index : moduleCatalog.length - 1];
+}
+
+function removeModuleDefinition(moduleId) {
+  if (!moduleId) return false;
+  const index = moduleCatalog.findIndex((item) => item.id === moduleId);
+  if (index === -1) return false;
+  const definition = moduleCatalog[index];
+  if (!isCustomModuleDefinition(definition)) return false;
+  const [removed] = moduleCatalog.splice(index, 1);
+  if (ui.moduleForm && ui.moduleForm.dataset.mode === 'edit' && ui.moduleForm.dataset.targetId === moduleId) {
+    resetModuleFormState();
+    closeInlineForm(ui.btnAddModule, ui.moduleForm, true);
+  }
+  const instances = state.modules.filter((mod) => mod.definitionId === moduleId);
+  instances.slice().forEach((mod) => {
+    removeModule(mod, { pushHistory: false, silent: true });
+  });
+  if (instances.length > 0) {
+    updateSelectionDetails();
+  }
+  populateModuleButtons();
+  updateModuleLibrarySummary();
+  updateModuleList();
+  updateAnalysis();
+  pushHistory();
+  return removed;
 }
 
 async function readModuleLibraryFile(file) {
@@ -1192,6 +1263,9 @@ const history = {
   undo: [],
   redo: []
 };
+
+const MODAL_OK_DEFAULT_LABEL = 'Fermer';
+let pendingModalConfirm = null;
 
 const DEFAULT_ORBIT_AZIMUTH = Math.PI / 4;
 const DEFAULT_ORBIT_POLAR = Math.PI / 4;
@@ -2087,6 +2161,7 @@ function initUI() {
   ui.fileInput = document.getElementById('file-input');
   ui.btnAddChassis = document.getElementById('btn-add-chassis');
   ui.btnEditChassis = document.getElementById('btn-edit-chassis');
+  ui.btnDeleteChassis = document.getElementById('btn-delete-chassis');
   ui.chassisForm = document.getElementById('chassis-form');
   ui.btnAddModule = document.getElementById('btn-add-module');
   ui.moduleForm = document.getElementById('module-form');
@@ -2134,7 +2209,30 @@ function initUI() {
   syncWalkwayPositionControls(state.walkwayWidth, getEffectiveWalkwayLength());
   syncChassisTransparencyControls();
 
+  updateModuleList();
   bindUIEvents();
+}
+
+function getSelectedChassisDefinition() {
+  if (!ui.chassisSelect) return null;
+  const selectedId = ui.chassisSelect.value;
+  return chassisCatalog.find((item) => item.id === selectedId) || null;
+}
+
+function updateChassisActionState() {
+  const selected = getSelectedChassisDefinition();
+  if (ui.btnEditChassis) {
+    ui.btnEditChassis.disabled = !selected;
+  }
+  if (ui.btnDeleteChassis) {
+    const canDelete = isCustomChassis(selected);
+    ui.btnDeleteChassis.disabled = !canDelete;
+    if (canDelete && selected) {
+      ui.btnDeleteChassis.title = `Supprimer le châssis personnalisé « ${selected.name} »`;
+    } else {
+      ui.btnDeleteChassis.title = 'Sélectionnez un châssis personnalisé pour activer la suppression.';
+    }
+  }
 }
 
 function populateChassisOptions(preferredId) {
@@ -2155,6 +2253,7 @@ function populateChassisOptions(preferredId) {
   if (selected) {
     ui.chassisSelect.value = selected.id;
   }
+  updateChassisActionState();
   return selected || null;
 }
 
@@ -2287,6 +2386,19 @@ function populateModuleButtons() {
 
       actions.appendChild(addBtn);
       actions.appendChild(editBtn);
+      if (isCustomModuleDefinition(module)) {
+        const deleteBtn = document.createElement('button');
+        deleteBtn.type = 'button';
+        deleteBtn.classList.add('ghost', 'danger');
+        deleteBtn.textContent = 'Supprimer';
+        deleteBtn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          confirmAction('Supprimer le module', `Supprimer le module personnalisé « ${module.name} » ?\nLes instances déjà placées seront retirées de la scène.`, () => {
+            removeModuleDefinition(module.id);
+          });
+        });
+        actions.appendChild(deleteBtn);
+      }
       card.appendChild(actions);
 
       grid.appendChild(card);
@@ -2448,6 +2560,23 @@ function bindUIEvents() {
     });
   }
 
+  if (ui.btnDeleteChassis) {
+    ui.btnDeleteChassis.addEventListener('click', () => {
+      const chassis = getSelectedChassisDefinition();
+      if (!chassis) {
+        showModal('Information', 'Veuillez sélectionner un châssis à supprimer.');
+        return;
+      }
+      if (!isCustomChassis(chassis)) {
+        showModal('Information', 'Seuls les châssis personnalisés peuvent être supprimés.');
+        return;
+      }
+      confirmAction('Supprimer le châssis', `Voulez-vous supprimer le châssis personnalisé « ${chassis.name} » ?`, () => {
+        removeChassisDefinition(chassis.id);
+      });
+    });
+  }
+
   if (ui.btnImportModuleLibrary && ui.moduleLibraryInput) {
     ui.btnImportModuleLibrary.addEventListener('click', () => {
       ui.moduleLibraryInput.click();
@@ -2517,6 +2646,7 @@ function bindUIEvents() {
       applyChassis(next);
       updateAnalysis();
     }
+    updateChassisActionState();
   });
 
   ui.walkwayRange.addEventListener('input', () => {
@@ -3136,13 +3266,41 @@ function updateSelectionDetails() {
 }
 
 function updateModuleList() {
+  if (!ui.moduleList) return;
   ui.moduleList.innerHTML = '';
+  if (state.modules.length === 0) {
+    const emptyItem = document.createElement('li');
+    emptyItem.className = 'module-list-empty';
+    emptyItem.textContent = "Aucun module n'est positionné.";
+    ui.moduleList.appendChild(emptyItem);
+    return;
+  }
   state.modules.forEach((mod) => {
     const li = document.createElement('li');
-    li.textContent = mod.name;
     if (state.selected && state.selected.id === mod.id) {
       li.classList.add('selected');
     }
+    const name = document.createElement('span');
+    name.className = 'module-list-name';
+    name.textContent = mod.name;
+    li.appendChild(name);
+
+    const actions = document.createElement('div');
+    actions.className = 'module-list-actions';
+    const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
+    deleteBtn.className = 'ghost danger compact';
+    deleteBtn.textContent = 'Supprimer';
+    deleteBtn.title = 'Retirer ce module de la scène';
+    deleteBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      confirmAction('Retirer le module', `Voulez-vous retirer « ${mod.name} » de la scène ?`, () => {
+        removeModule(mod);
+      });
+    });
+    actions.appendChild(deleteBtn);
+    li.appendChild(actions);
+
     li.addEventListener('click', () => selectModule(mod));
     ui.moduleList.appendChild(li);
   });
@@ -3796,7 +3954,8 @@ function onKeyDown(event) {
   }
 }
 
-function removeModule(mod) {
+function removeModule(mod, options = {}) {
+  const { pushHistory: shouldPushHistory = true, silent = false } = options;
   const index = state.modules.indexOf(mod);
   if (index !== -1) {
     disposeModuleLabel(mod);
@@ -3806,11 +3965,17 @@ function removeModule(mod) {
     state.modules.splice(index, 1);
     if (state.selected && state.selected.id === mod.id) {
       state.selected = null;
-      updateSelectionDetails();
+      if (!silent) {
+        updateSelectionDetails();
+      }
     }
-    updateModuleList();
-    updateAnalysis();
-    pushHistory();
+    if (!silent) {
+      updateModuleList();
+      updateAnalysis();
+    }
+    if (shouldPushHistory) {
+      pushHistory();
+    }
   }
 }
 
@@ -4269,7 +4434,18 @@ function redo() {
   restoreState(data);
 }
 
+function resetModalConfirmation() {
+  if (pendingModalConfirm && ui.modalOk) {
+    ui.modalOk.removeEventListener('click', pendingModalConfirm);
+  }
+  pendingModalConfirm = null;
+  if (ui.modalOk) {
+    ui.modalOk.textContent = MODAL_OK_DEFAULT_LABEL;
+  }
+}
+
 function showModal(title, body) {
+  resetModalConfirmation();
   ui.modalTitle.textContent = title;
   ui.modalBody.textContent = body;
   ui.modal.classList.remove('hidden');
@@ -4277,18 +4453,22 @@ function showModal(title, body) {
 
 function hideModal() {
   ui.modal.classList.add('hidden');
+  resetModalConfirmation();
 }
 
 function confirmAction(title, message, onConfirm) {
+  resetModalConfirmation();
   ui.modalTitle.textContent = title;
   ui.modalBody.textContent = message;
-  ui.modal.classList.remove('hidden');
-  const handler = () => {
+  if (ui.modalOk) {
+    ui.modalOk.textContent = 'Confirmer';
+  }
+  pendingModalConfirm = () => {
     hideModal();
     onConfirm();
-    ui.modalOk.removeEventListener('click', handler);
   };
-  ui.modalOk.addEventListener('click', handler, { once: true });
+  ui.modalOk.addEventListener('click', pendingModalConfirm);
+  ui.modal.classList.remove('hidden');
 }
 
 function initApp() {
