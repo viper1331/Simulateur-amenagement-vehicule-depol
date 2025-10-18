@@ -493,6 +493,8 @@ function applyModuleDefinitionUpdate(definition) {
         }
       });
     }
+
+    updateModuleLabel(mod);
   });
 
   if (updated) {
@@ -570,6 +572,73 @@ let dragOffset = new THREE.Vector3();
 let dragMode = 'horizontal';
 let workspaceBounds = new THREE.Box3();
 let walkwayMesh, chassisGroup, gabaritGroup;
+
+function formatModuleDimensions(size) {
+  return `${size.x.toFixed(2)} m × ${size.y.toFixed(2)} m × ${size.z.toFixed(2)} m`;
+}
+
+function disposeModuleLabel(module) {
+  if (!module || !module.labelSprite) return;
+  if (module.labelSprite.material) {
+    if (module.labelSprite.material.map) {
+      module.labelSprite.material.map.dispose();
+    }
+    module.labelSprite.material.dispose();
+  }
+  if (module.mesh) {
+    module.mesh.remove(module.labelSprite);
+  }
+  module.labelSprite = null;
+}
+
+function updateModuleLabel(module) {
+  if (!module || !module.mesh) return;
+
+  disposeModuleLabel(module);
+
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+  if (!context) return;
+
+  const text = formatModuleDimensions(module.size);
+  const fontSize = 64;
+  const padding = 32;
+  context.font = `${fontSize}px 'Roboto', sans-serif`;
+  const metrics = context.measureText(text);
+  const width = Math.ceil(metrics.width + padding * 2);
+  const height = Math.ceil(fontSize + padding * 2);
+
+  canvas.width = width;
+  canvas.height = height;
+
+  context.font = `${fontSize}px 'Roboto', sans-serif`;
+  context.textAlign = 'center';
+  context.textBaseline = 'middle';
+  context.fillStyle = 'rgba(16, 19, 26, 0.82)';
+  context.fillRect(0, 0, width, height);
+  context.fillStyle = '#ffffff';
+  context.fillText(text, width / 2, height / 2);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false
+  });
+
+  const sprite = new THREE.Sprite(material);
+  const scaleFactor = 0.0025;
+  sprite.scale.set(width * scaleFactor, height * scaleFactor, 1);
+  sprite.position.set(0, module.size.y + 0.25, 0);
+  sprite.center.set(0.5, 0);
+
+  module.mesh.add(sprite);
+  module.labelSprite = sprite;
+}
 
 const DEFAULT_WALKWAY_LENGTH = 12;
 const WALKWAY_THICKNESS = 0.05;
@@ -1290,10 +1359,12 @@ function addModuleInstance(moduleId) {
     fluidVolume: definition.fluidVolume,
     density: definition.density,
     size: { ...definition.size },
-    color
+    color,
+    labelSprite: null
   };
 
   scene.add(mesh);
+  updateModuleLabel(instance);
   state.modules.push(instance);
   selectModule(instance);
   updateModuleList();
@@ -1570,6 +1641,7 @@ function onKeyDown(event) {
 function removeModule(mod) {
   const index = state.modules.indexOf(mod);
   if (index !== -1) {
+    disposeModuleLabel(mod);
     scene.remove(mod.mesh);
     mod.mesh.geometry.dispose();
     mod.mesh.material.dispose();
@@ -1705,6 +1777,7 @@ function detectWalkwayIssues() {
 
 function resetScene() {
   state.modules.forEach((mod) => {
+    disposeModuleLabel(mod);
     scene.remove(mod.mesh);
     mod.mesh.geometry.dispose();
     mod.mesh.material.dispose();
@@ -1768,6 +1841,7 @@ function restoreState(data) {
   walkwayMesh.visible = state.walkwayVisible;
 
   state.modules.forEach((mod) => {
+    disposeModuleLabel(mod);
     scene.remove(mod.mesh);
     mod.mesh.geometry.dispose();
     mod.mesh.material.dispose();
@@ -1822,10 +1896,12 @@ function restoreState(data) {
       fluidVolume: item.fluidVolume ?? definition.fluidVolume,
       density: item.density ?? definition.density,
       size: { ...size },
-      color: baseColor
+      color: baseColor,
+      labelSprite: null
     };
     syncModuleState(instance);
     scene.add(mesh);
+    updateModuleLabel(instance);
     state.modules.push(instance);
   });
 
