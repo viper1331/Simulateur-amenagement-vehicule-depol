@@ -582,31 +582,6 @@ function createSelectionProxyGeometry(size) {
   return new THREE.BoxGeometry(width, height, depth);
 }
 
-function updateMeshGeometryFromDefinition(mesh, definition) {
-  if (!mesh) return;
-  const shape = normalizeModuleShape(definition.shape);
-  const geometry = createModuleGeometry(shape, definition.size);
-  if (mesh.geometry) {
-    mesh.geometry.dispose();
-  }
-  mesh.geometry = geometry;
-  mesh.position.y = definition.size.y / 2;
-  mesh.children.forEach((child) => {
-    if (child.isLineSegments) {
-      if (child.geometry) {
-        child.geometry.dispose();
-      }
-      child.geometry = new THREE.EdgesGeometry(geometry);
-    } else if (child.userData && child.userData.isSelectionProxy) {
-      if (child.geometry) {
-        child.geometry.dispose();
-      }
-      child.geometry = createSelectionProxyGeometry(definition.size);
-    }
-    material.resolution.set(width, height);
-  });
-}
-
 function invalidateMaterialCache() {
   sharedMaterials.forEach((material) => material.dispose());
   sharedMaterials.clear();
@@ -809,76 +784,108 @@ function updateMeshGeometryFromDefinition(mesh, definition) {
   return { mesh: rebuilt, color };
 }
 
-function createModuleMesh(definition, { size, color } = {}) {
-  const resolvedSize = size ? { ...definition.size, ...size } : { ...definition.size };
-  const shape = normalizeModuleShape(definition.shape);
-  const type = (definition.type || '').toLowerCase();
-  const baseColor = color !== undefined
-    ? color
-    : (definition.color !== undefined ? definition.color : RAL_COLORS.cabinets);
-
-  let visual;
-  if (type === 'hosereel') {
-    visual = createHoseReelVisual(resolvedSize, baseColor);
-  } else if (type === 'pump') {
-    visual = createPumpVisual(resolvedSize, baseColor);
-  } else if (type === 'cabinet') {
-    visual = createCabinetVisual(resolvedSize, baseColor);
-  } else {
-    const profile = type === 'tank' ? 'stainless' : 'paintedMetal';
-    const { mesh } = createGenericModuleVisual(shape, resolvedSize, baseColor, profile);
-    mesh.position.y = resolvedSize.y / 2;
-    visual = mesh;
-  }
-
-  const root = new THREE.Group();
-  root.name = definition.name || 'module';
-  root.userData.moduleSize = { ...resolvedSize };
-  root.userData.definition = definition;
-  const pivot = new THREE.Group();
-  pivot.name = 'visual';
-  pivot.position.y = -resolvedSize.y / 2;
-  root.add(pivot);
-
-  if (visual.isMesh || visual.isGroup || visual.isObject3D) {
-    pivot.add(visual);
-  } else {
-    const placeholder = new THREE.Mesh(
-      createModuleGeometry(shape, resolvedSize),
-      getPhysicalMaterial(baseColor, 'paintedMetal')
-    );
-    placeholder.position.y = resolvedSize.y / 2;
-    attachIndustrialEdges(placeholder, placeholder.geometry, 0x0b131f, 1.2);
-    pivot.add(placeholder);
-  }
-
-  const doors = attachModuleDoors(pivot, definition, resolvedSize, baseColor);
-  root.position.set(0, resolvedSize.y / 2, 0);
-  root.castShadow = true;
-  root.receiveShadow = true;
-  root.userData.doors = doors;
-
-  return { mesh: root, color: baseColor, shape, size: { ...resolvedSize }, doors };
+function lightenColor(hexColor, delta = 0.1) {
+  const color = new THREE.Color(hexColor);
+  const hsl = { h: 0, s: 0, l: 0 };
+  color.getHSL(hsl);
+  color.setHSL(hsl.h, hsl.s, THREE.MathUtils.clamp(hsl.l + delta, 0, 1));
+  return color.getHex();
 }
 
-function createModuleInstance(definition, overrides = {}) {
-  if (!definition) return null;
+function createModuleDoors(root, definition, size, baseColor) {
+  if (!Array.isArray(definition.doors) || definition.doors.length === 0) {
+    return [];
+  }
+  const doors = [];
+  definition.doors.forEach((doorConfig, index) => {
+    if (!doorConfig) return;
+    const type = (doorConfig.type || 'swing').toLowerCase();
+    const widthRatio = THREE.MathUtils.clamp(doorConfig.widthRatio ?? 0.6, 0.05, 1);
+    const heightRatio = THREE.MathUtils.clamp(doorConfig.heightRatio ?? 0.75, 0.05, 1);
+    const doorWidth = size.x * widthRatio;
+    const doorHeight = size.y * heightRatio;
+    const thickness = Math.max(doorConfig.thickness ?? 0.04, 0.01);
+    const panelGeometry = new THREE.BoxGeometry(doorWidth, doorHeight, thickness);
+    const doorColor = lightenColor(baseColor, 0.12);
+    const panelMaterial = getPhysicalMaterial(doorColor, 'paintedMetal', { roughness: 0.35 });
+    const panel = new THREE.Mesh(panelGeometry, panelMaterial);
+    panel.castShadow = true;
+    panel.receiveShadow = true;
+    panel.add(createEdgeLines(panelGeometry, 0x101822, 1.1));
 
-  const sizeOverride = overrides.size ? { ...overrides.size } : null;
-  const colorOverride = overrides.color;
-  const { mesh, color, shape, size } = createModuleMesh(definition, {
-    size: sizeOverride || undefined,
-    color: colorOverride
+    const group = new THREE.Group();
+    group.name = `door-${doorConfig.id || index}`;
+    const hingeSide = (doorConfig.hingeSide || 'left').toLowerCase();
+    const pivot = new THREE.Group();
+    pivot.position.y = -size.y / 2;
+    pivot.position.z = size.z / 2 + thickness / 2;
+    group.add(pivot);
+
+    if (type === 'swing') {
+      const hingeOnRight = hingeSide === 'right';
+      pivot.position.x = hingeOnRight ? size.x / 2 : -size.x / 2;
+      panel.position.set(hingeOnRight ? -doorWidth / 2 : doorWidth / 2, doorHeight / 2, thickness / 2);
+      pivot.add(panel);
+      group.userData = {
+        type: 'swing',
+        pivot,
+        hingeSide: hingeOnRight ? 1 : 0,
+        openAngleDeg: doorConfig.openAngleDeg ?? 110,
+        openTimeMs: doorConfig.openTimeMs ?? 1200
+      };
+    } else if (type === 'lift') {
+      pivot.position.x = 0;
+      panel.position.set(0, doorHeight / 2, thickness / 2);
+      panel.userData.basePosition = panel.position.clone();
+      pivot.add(panel);
+      group.userData = {
+        type: 'lift',
+        panel,
+        slideDistance: doorConfig.slideDistanceMm ? mmToM(doorConfig.slideDistanceMm) : 0.4,
+        openTimeMs: doorConfig.openTimeMs ?? 1200
+      };
+    } else {
+      pivot.position.x = hingeSide === 'right' ? size.x / 2 : -size.x / 2;
+      panel.position.set(0, doorHeight / 2, thickness / 2);
+      pivot.add(panel);
+      group.userData = {
+        type: 'swing',
+        pivot,
+        hingeSide: hingeSide === 'right' ? 1 : 0,
+        openAngleDeg: doorConfig.openAngleDeg ?? 110,
+        openTimeMs: doorConfig.openTimeMs ?? 1200
+      };
+    }
+
+    root.add(group);
+    doors.push({
+      id: doorConfig.id || `door-${definition.id}-${index + 1}`,
+      label: doorConfig.label || doorConfig.id || `Accès ${index + 1}`,
+      type,
+      config: doorConfig,
+      group
+    });
   });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  mesh.position.set(0, resolvedSize.y / 2, 0);
-  const edges = new THREE.LineSegments(
-    new THREE.EdgesGeometry(geometry),
-    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 })
-  );
-  mesh.add(edges);
+  return doors;
+}
+
+function createModuleMesh(definition, overrides = {}) {
+  const sizeOverride = overrides.size ? { ...overrides.size } : null;
+  const resolvedSize = sizeOverride ? { ...definition.size, ...sizeOverride } : { ...definition.size };
+  const shape = normalizeModuleShape(definition.shape);
+  const type = (definition.type || '').toLowerCase();
+  const baseColor = overrides.color !== undefined
+    ? overrides.color
+    : (definition.color !== undefined ? definition.color : RAL_COLORS.cabinets);
+  const profile = type === 'tank' ? 'stainless' : 'paintedMetal';
+
+  const geometry = createModuleGeometry(shape, resolvedSize);
+  const material = getPhysicalMaterial(baseColor, profile);
+  const body = new THREE.Mesh(geometry, material);
+  body.castShadow = true;
+  body.receiveShadow = true;
+  body.add(createEdgeLines(geometry, 0x0b131f, 1.3));
+
   const selectionProxyMaterial = new THREE.MeshBasicMaterial({
     color: 0xffffff,
     transparent: true,
@@ -889,8 +896,22 @@ function createModuleInstance(definition, overrides = {}) {
   const selectionProxy = new THREE.Mesh(createSelectionProxyGeometry(resolvedSize), selectionProxyMaterial);
   selectionProxy.name = 'selection-proxy';
   selectionProxy.userData.isSelectionProxy = true;
-  mesh.add(selectionProxy);
-  return { mesh, color: baseColor, shape, size: { ...resolvedSize } };
+
+  const root = new THREE.Group();
+  root.name = definition.name || 'module';
+  root.userData.moduleSize = { ...resolvedSize };
+  root.userData.definition = definition;
+  root.position.set(0, resolvedSize.y / 2, 0);
+  root.castShadow = true;
+  root.receiveShadow = true;
+  body.position.y = 0;
+  root.add(body);
+  root.add(selectionProxy);
+
+  const doors = createModuleDoors(root, definition, resolvedSize, baseColor);
+  root.userData.doors = doors;
+
+  return { mesh: root, color: baseColor, shape, size: { ...resolvedSize }, doors };
 }
 
 function parseNumberField(value, label, { min = -Infinity, max = Infinity } = {}) {
@@ -3914,46 +3935,105 @@ function refreshChassisInfo() {
 }
 
 function addModuleInstance(moduleId, options = {}) {
-  const { definition: fallbackDefinition } = options;
+  const {
+    definition: fallbackDefinition,
+    size: sizeOverride,
+    color: colorOverride,
+    name: nameOverride,
+    type: typeOverride,
+    massEmpty: massOverride,
+    fluidVolume: fluidOverride,
+    density: densityOverride,
+    containsFluid: containsFluidOverride,
+    fill: fillOverride,
+    libraryId: libraryIdOverride,
+    libraryName: libraryNameOverride,
+    librarySource: librarySourceOverride,
+    libraryLicense: libraryLicenseOverride,
+    libraryWebsite: libraryWebsiteOverride,
+    isCustom: isCustomOverride,
+    position,
+    rotation,
+    shape: shapeOverride,
+    skipSelect = false,
+    skipAnalysis = false,
+    skipHistory = false
+  } = options;
+
   const definition = moduleCatalog.find((m) => m.id === moduleId) || fallbackDefinition;
   if (!definition) return null;
 
-  const { mesh, color, doors } = createModuleMesh(definition);
+  const { mesh, color, doors, size } = createModuleMesh(definition, {
+    size: sizeOverride,
+    color: colorOverride
+  });
 
-  const containsFluid = Boolean(definition.containsFluid);
-  const initialFill = containsFluid ? Math.min(100, Math.max(0, definition.defaultFill ?? 0)) : 0;
+  if (position instanceof THREE.Vector3) {
+    mesh.position.copy(position);
+  } else if (Array.isArray(position) && position.length === 3) {
+    mesh.position.set(position[0], position[1], position[2]);
+  } else if (position && typeof position === 'object') {
+    mesh.position.set(
+      position.x ?? mesh.position.x,
+      position.y ?? mesh.position.y,
+      position.z ?? mesh.position.z
+    );
+  }
+
+  if (rotation instanceof THREE.Euler) {
+    mesh.rotation.copy(rotation);
+  } else if (typeof rotation === 'number') {
+    mesh.rotation.y = rotation;
+  } else if (rotation && typeof rotation === 'object') {
+    const rotY = rotation.y ?? rotation.rotationY;
+    if (typeof rotY === 'number') {
+      mesh.rotation.y = rotY;
+    }
+  }
+
+  const containsFluid = containsFluidOverride !== undefined
+    ? Boolean(containsFluidOverride)
+    : Boolean(definition.containsFluid);
+  const resolvedFluidVolume = containsFluid ? (fluidOverride ?? definition.fluidVolume ?? 0) : 0;
+  const resolvedDensity = containsFluid ? (densityOverride ?? definition.density ?? 0) : 0;
+  const resolvedFill = containsFluid
+    ? THREE.MathUtils.clamp(fillOverride ?? definition.defaultFill ?? 0, 0, 100)
+    : 0;
+
   const instance = {
     id: `module-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-    definitionId: moduleId,
-    type: definition.type,
-    name: definition.name,
+    definitionId: definition.id,
+    type: typeOverride || definition.type,
+    name: nameOverride || definition.name,
     mesh,
-    shape: normalizeModuleShape(definition.shape),
-    fill: initialFill,
-    massEmpty: definition.massEmpty,
-    fluidVolume: containsFluid ? definition.fluidVolume : 0,
-    density: containsFluid ? definition.density : 0,
+    shape: normalizeModuleShape(shapeOverride || definition.shape),
+    fill: resolvedFill,
+    massEmpty: massOverride ?? definition.massEmpty ?? 0,
+    fluidVolume: resolvedFluidVolume,
+    density: resolvedDensity,
     containsFluid,
-    size: { ...definition.size },
+    size: { ...size },
     color,
-    isCustom: Boolean(definition.isCustom),
-    libraryId: definition.libraryId,
-    libraryName: definition.libraryName,
-    librarySource: definition.librarySource,
-    libraryLicense: definition.libraryLicense,
-    libraryWebsite: definition.libraryWebsite,
+    isCustom: isCustomOverride !== undefined ? Boolean(isCustomOverride) : Boolean(definition.isCustom),
+    libraryId: libraryIdOverride ?? definition.libraryId,
+    libraryName: libraryNameOverride ?? definition.libraryName,
+    librarySource: librarySourceOverride ?? definition.librarySource,
+    libraryLicense: libraryLicenseOverride ?? definition.libraryLicense,
+    libraryWebsite: libraryWebsiteOverride ?? definition.libraryWebsite,
     labelSprite: null,
-    doors: Array.isArray(doors) ? doors.map((door) => ({
-      id: door.id,
-      label: door.label,
-      type: door.type,
-      config: door.config,
-      group: door.group,
-      open: false,
-      progress: 0,
-      alert: false,
-      isAnimating: false
-    })) : []
+    doors: Array.isArray(doors)
+      ? doors.map((door) => ({
+          id: door.id,
+          label: door.label,
+          type: door.type,
+          config: door.config,
+          group: door.group,
+          open: false,
+          progress: 0,
+          alert: false,
+          isAnimating: false
+        }))
+      : []
   };
 
   scene.add(instance.mesh);
