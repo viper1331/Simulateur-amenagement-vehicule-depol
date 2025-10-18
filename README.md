@@ -6,10 +6,10 @@ Application 3D temps réel permettant d'aménager un véhicule de dépollution a
 
 - Visualisation 3D en temps réel basée sur Three.js.
 - Châssis paramétrables avec gabarits latéraux translucides.
-- Modules procéduraux (cuves, pompes, enrouleurs, armoires) déplaçables et rotatifs.
+- Modules procéduraux (cuves, pompes, enrouleurs, armoires) déplaçables et rotatifs sur les trois axes.
 - Modes de manipulation :
   - **T** : translation (glisser pour déplacer, pas de 10 mm).
-  - **R** : rotation (glisser latéralement pour pivoter par pas de 5°).
+  - **R** : rotation (glisser latéralement pour pivoter autour de l'axe Y par pas de 5°).
   - **Suppr** : suppression du module sélectionné.
 - Undo/Redo : `Ctrl+Z` / `Ctrl+Y`.
 - Mode mesure point-à-point (`M`) avec annotation de distance en millimètres.
