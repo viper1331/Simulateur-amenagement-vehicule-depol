@@ -798,6 +798,11 @@ const state = {
   chassisMesh: null,
   chassisData: null,
   chassisOpacity: 1,
+  showChassis: true,
+  showGrid: true,
+  showGabarit: true,
+  showUsableVolume: true,
+  showModuleLabels: true,
   walkwayWidth: 0.8,
   walkwayVisible: true,
   walkwayOffsetX: 0,
@@ -919,9 +924,40 @@ function updateModuleLabel(module) {
   sprite.scale.set(width * scaleFactor, height * scaleFactor, 1);
   sprite.position.set(0, module.size.y + 0.25, 0);
   sprite.center.set(0.5, 0);
+  sprite.visible = state.showModuleLabels;
 
   module.mesh.add(sprite);
   module.labelSprite = sprite;
+}
+
+function updateModuleLabelVisibility() {
+  state.modules.forEach((mod) => {
+    if (mod.labelSprite) {
+      mod.labelSprite.visible = state.showModuleLabels;
+    }
+  });
+}
+
+function applyDisplayFilters() {
+  if (grid) {
+    grid.visible = state.showGrid;
+  }
+  if (chassisGroup) {
+    chassisGroup.visible = state.showChassis;
+  }
+  if (state.chassisMesh) {
+    state.chassisMesh.visible = state.showChassis;
+  }
+  if (gabaritGroup) {
+    gabaritGroup.visible = state.showGabarit;
+  }
+  if (usableVisualGroup) {
+    usableVisualGroup.visible = state.showUsableVolume;
+  }
+  if (usableHandleGroup) {
+    usableHandleGroup.visible = state.showUsableVolume;
+  }
+  updateModuleLabelVisibility();
 }
 
 const DEFAULT_WALKWAY_LENGTH = 12;
@@ -1150,6 +1186,10 @@ function updateUsableHandlePositions() {
     usableHandles.center.visible = true;
     usableHandles.center.position.set(bounds.centerX, clampedHeight + 0.25, bounds.centerZ);
   }
+
+  if (usableHandleGroup) {
+    usableHandleGroup.visible = state.showUsableVolume;
+  }
 }
 
 function updateUsableVolumeVisuals() {
@@ -1238,6 +1278,10 @@ function updateUsableVolumeVisuals() {
     topMesh.position.set(bounds.centerX, usableHeight + height / 2, bounds.centerZ);
     topMesh.raycast = () => {};
     usableVisualGroup.add(topMesh);
+  }
+
+  if (usableVisualGroup) {
+    usableVisualGroup.visible = state.showUsableVolume;
   }
 }
 
@@ -1377,6 +1421,8 @@ function initScene() {
   raycaster = new THREE.Raycaster();
   pointer = new THREE.Vector2();
   dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+  applyDisplayFilters();
 
   updateCameraFromOrbit();
   animate();
@@ -1624,6 +1670,17 @@ function initUI() {
   ui.moduleForm = document.getElementById('module-form');
   ui.moduleFluidToggle = document.getElementById('module-has-fluid');
   ui.moduleShapeSelect = document.getElementById('module-shape');
+  ui.filterShowChassis = document.getElementById('filter-show-chassis');
+  ui.filterShowGrid = document.getElementById('filter-show-grid');
+  ui.filterShowGabarit = document.getElementById('filter-show-gabarit');
+  ui.filterShowUsable = document.getElementById('filter-show-usable');
+  ui.filterShowLabels = document.getElementById('filter-show-labels');
+
+  if (ui.filterShowChassis) ui.filterShowChassis.checked = state.showChassis;
+  if (ui.filterShowGrid) ui.filterShowGrid.checked = state.showGrid;
+  if (ui.filterShowGabarit) ui.filterShowGabarit.checked = state.showGabarit;
+  if (ui.filterShowUsable) ui.filterShowUsable.checked = state.showUsableVolume;
+  if (ui.filterShowLabels) ui.filterShowLabels.checked = state.showModuleLabels;
 
   resetChassisFormState();
   resetModuleFormState();
@@ -1925,6 +1982,46 @@ function bindUIEvents() {
     pushHistory();
   });
 
+  if (ui.filterShowChassis) {
+    ui.filterShowChassis.addEventListener('change', () => {
+      state.showChassis = ui.filterShowChassis.checked;
+      applyDisplayFilters();
+      pushHistory();
+    });
+  }
+
+  if (ui.filterShowGrid) {
+    ui.filterShowGrid.addEventListener('change', () => {
+      state.showGrid = ui.filterShowGrid.checked;
+      applyDisplayFilters();
+      pushHistory();
+    });
+  }
+
+  if (ui.filterShowGabarit) {
+    ui.filterShowGabarit.addEventListener('change', () => {
+      state.showGabarit = ui.filterShowGabarit.checked;
+      applyDisplayFilters();
+      pushHistory();
+    });
+  }
+
+  if (ui.filterShowUsable) {
+    ui.filterShowUsable.addEventListener('change', () => {
+      state.showUsableVolume = ui.filterShowUsable.checked;
+      applyDisplayFilters();
+      pushHistory();
+    });
+  }
+
+  if (ui.filterShowLabels) {
+    ui.filterShowLabels.addEventListener('change', () => {
+      state.showModuleLabels = ui.filterShowLabels.checked;
+      applyDisplayFilters();
+      pushHistory();
+    });
+  }
+
   ui.chassisTransparencyRange.addEventListener('input', () => {
     const transparency = Number(ui.chassisTransparencyRange.value) / 100;
     setChassisOpacity(1 - transparency);
@@ -2208,6 +2305,8 @@ function applyChassis(chassis) {
 
   chassisGroup.add(mesh);
   state.chassisMesh = mesh;
+
+  applyDisplayFilters();
 
   setChassisOpacity(state.chassisOpacity);
 
@@ -2865,6 +2964,11 @@ function serializeState() {
   const serialized = {
     chassisId: state.chassisData ? state.chassisData.id : null,
     chassisOpacity: state.chassisOpacity,
+    showChassis: state.showChassis,
+    showGrid: state.showGrid,
+    showGabarit: state.showGabarit,
+    showUsableVolume: state.showUsableVolume,
+    showModuleLabels: state.showModuleLabels,
     walkwayWidth: state.walkwayWidth,
     walkwayVisible: state.walkwayVisible,
     walkwayOffsetX: state.walkwayOffsetX,
@@ -2916,6 +3020,19 @@ function restoreState(data) {
   ui.walkwayToggle.checked = state.walkwayVisible;
   updateWalkway();
   walkwayMesh.visible = state.walkwayVisible;
+
+  state.showChassis = data.showChassis !== undefined ? data.showChassis : true;
+  state.showGrid = data.showGrid !== undefined ? data.showGrid : true;
+  state.showGabarit = data.showGabarit !== undefined ? data.showGabarit : true;
+  state.showUsableVolume = data.showUsableVolume !== undefined ? data.showUsableVolume : true;
+  state.showModuleLabels = data.showModuleLabels !== undefined ? data.showModuleLabels : true;
+
+  if (ui.filterShowChassis) ui.filterShowChassis.checked = state.showChassis;
+  if (ui.filterShowGrid) ui.filterShowGrid.checked = state.showGrid;
+  if (ui.filterShowGabarit) ui.filterShowGabarit.checked = state.showGabarit;
+  if (ui.filterShowUsable) ui.filterShowUsable.checked = state.showUsableVolume;
+  if (ui.filterShowLabels) ui.filterShowLabels.checked = state.showModuleLabels;
+  applyDisplayFilters();
 
   state.modules.forEach((mod) => {
     disposeModuleLabel(mod);
