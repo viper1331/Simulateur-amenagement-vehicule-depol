@@ -6,10 +6,10 @@ import * as sumchecker from 'sumchecker';
 import { getArtifactFileName, getArtifactRemoteURL, getArtifactVersion } from './artifact-utils';
 import { Cache } from './Cache';
 import { getDownloaderForSystem } from './downloader-resolver';
-import { initializeProxy } from './proxy';
+import { initializeProxy, getProxyAgentForUrl } from './proxy';
 import { withTempDirectoryIn, getHostArch, getNodeArch, ensureIsTruthyString, isOfficialLinuxIA32Download, } from './utils';
 export { getHostArch } from './utils';
-export { initializeProxy } from './proxy';
+export { initializeProxy, getProxyAgentForUrl } from './proxy';
 const d = debug('@electron/get:index');
 if (process.env.ELECTRON_GET_USE_PROXY) {
     initializeProxy();

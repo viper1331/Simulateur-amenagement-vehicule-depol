@@ -14,6 +14,7 @@ var utils_2 = require("./utils");
 exports.getHostArch = utils_2.getHostArch;
 var proxy_2 = require("./proxy");
 exports.initializeProxy = proxy_2.initializeProxy;
+exports.getProxyAgentForUrl = proxy_2.getProxyAgentForUrl;
 const d = debug_1.default('@electron/get:index');
 if (process.env.ELECTRON_GET_USE_PROXY) {
     proxy_1.initializeProxy();

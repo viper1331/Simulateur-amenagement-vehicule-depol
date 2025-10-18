@@ -23,8 +23,10 @@
   "overrides": {
     "@electron/asar": "file:vendor/@electron/asar",
     "@electron/get": "file:vendor/@electron/get",
+    "agent-base": "file:vendor/@electron/agent-base",
     "rimraf@2.6.3": "file:vendor/rimraf/2",
     "rimraf@3.0.2": "file:vendor/rimraf/3",
-    "glob": "^9.3.5"
+    "glob": "^9.3.5",
+    "https-proxy-agent": "file:vendor/@electron/https-proxy-agent"
   }
 }

@@ -1,6 +1,6 @@
 import { ElectronDownloadRequestOptions, ElectronPlatformArtifactDetailsWithDefaults } from './types';
 export { getHostArch } from './utils';
-export { initializeProxy } from './proxy';
+export { initializeProxy, getProxyAgentForUrl } from './proxy';
 export * from './types';
 /**
  * Downloads an artifact from an Electron release and returns an absolute path
