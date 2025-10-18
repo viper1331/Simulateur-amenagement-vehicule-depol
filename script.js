@@ -1,6 +1,6 @@
 import * as THREE from './libs/three.module.js';
 
-const mmToM = (value) => value / 1000;
+const mmToM = (value) => (Number.isFinite(value) ? value / 1000 : null);
 const snapValue = (value, step = 0.01) => Math.round(value / step) * step;
 const degToRad = (deg) => deg * Math.PI / 180;
 const radToDeg = (rad) => rad * 180 / Math.PI;
@@ -274,6 +274,88 @@ function sanitizeChassisDefinition(definition) {
     isCustom: definition.isCustom !== undefined ? definition.isCustom : true
   };
   return sanitized;
+}
+
+function pickFirstFinite(values, fallback) {
+  for (const value of values) {
+    if (Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return fallback;
+}
+
+function computeChassisSpatialMetrics(chassis) {
+  const baseLength = Number.isFinite(chassis.length) ? chassis.length : 1;
+  const baseWidth = Number.isFinite(chassis.width) ? chassis.width : 1;
+  const baseHeight = Number.isFinite(chassis.height) ? chassis.height : 1;
+
+  const exteriorLength = pickFirstFinite([
+    mmToM(chassis.overallLengthMM),
+    baseLength
+  ], baseLength);
+
+  const exteriorWidth = pickFirstFinite([
+    mmToM(chassis.overallWidthMM),
+    mmToM(chassis.overallWidthMirrors),
+    baseWidth
+  ], baseWidth);
+
+  const exteriorHeight = pickFirstFinite([
+    mmToM(chassis.overallHeightMM),
+    mmToM(chassis.heightWithRack),
+    mmToM(chassis.heightUnladen),
+    baseHeight
+  ], baseHeight);
+
+  const frontOverhang = mmToM(chassis.frontOverhang);
+  const rearOverhang = mmToM(chassis.rearOverhang);
+  let usableLength = pickFirstFinite([
+    mmToM(chassis.maxLoadingLength)
+  ], null);
+
+  if (!Number.isFinite(usableLength) && Number.isFinite(exteriorLength)) {
+    const front = Number.isFinite(frontOverhang) ? frontOverhang : 0;
+    const rear = Number.isFinite(rearOverhang) ? rearOverhang : 0;
+    const candidate = exteriorLength - front - rear;
+    if (candidate > 0.1) {
+      usableLength = candidate;
+    }
+  }
+
+  if (!Number.isFinite(usableLength)) {
+    usableLength = exteriorLength;
+  }
+
+  const usableWidth = pickFirstFinite([
+    mmToM(chassis.interiorWidthWheelarches),
+    exteriorWidth
+  ], exteriorWidth);
+
+  const usableHeight = pickFirstFinite([
+    mmToM(chassis.interiorHeight),
+    exteriorHeight
+  ], exteriorHeight);
+
+  const usableCenterOffsetZ = (() => {
+    const front = Number.isFinite(frontOverhang) ? frontOverhang : 0;
+    const rear = Number.isFinite(rearOverhang) ? rearOverhang : 0;
+    if (front || rear) {
+      return (front - rear) / 2;
+    }
+    return 0;
+  })();
+
+  return {
+    exteriorLength,
+    exteriorWidth,
+    exteriorHeight,
+    usableLength,
+    usableWidth,
+    usableHeight,
+    usableCenterOffsetX: 0,
+    usableCenterOffsetZ
+  };
 }
 
 function sanitizeModuleDefinition(definition) {
@@ -786,21 +868,21 @@ function toMillimeters(value) {
 }
 
 function getEffectiveWalkwayLength() {
-  if (!state.chassisData || !Number.isFinite(state.chassisData.length)) {
+  if (!state.chassisData || !Number.isFinite(state.chassisData.usableLength)) {
     return DEFAULT_WALKWAY_LENGTH;
   }
-  const usableLength = state.chassisData.length - WALKWAY_END_CLEARANCE * 2;
+  const usableLength = state.chassisData.usableLength - WALKWAY_END_CLEARANCE * 2;
   return Math.max(usableLength, 0.5);
 }
 
 function getEffectiveWalkwayWidth() {
   let width = state.walkwayWidth;
-  if (state.chassisData && Number.isFinite(state.chassisData.width)) {
-    const maxWidth = Math.max(state.chassisData.width - WALKWAY_SIDE_CLEARANCE * 2, 0.1);
+  if (state.chassisData && Number.isFinite(state.chassisData.usableWidth)) {
+    const maxWidth = Math.max(state.chassisData.usableWidth - WALKWAY_SIDE_CLEARANCE * 2, 0.1);
     width = Math.min(width, maxWidth);
     const minWidth = Math.min(MIN_WALKWAY_WIDTH, maxWidth);
     width = Math.max(width, minWidth);
-    width = Math.min(width, state.chassisData.width);
+    width = Math.min(width, state.chassisData.usableWidth);
   } else {
     width = Math.max(width, MIN_WALKWAY_WIDTH);
   }
@@ -823,13 +905,13 @@ function syncWalkwayControls(width) {
 function getWalkwayOffsetLimits(width, length) {
   let maxX = 0;
   let maxZ = 0;
-  if (state.chassisData && Number.isFinite(state.chassisData.width)) {
-    const halfChassisWidth = state.chassisData.width / 2;
+  if (state.chassisData && Number.isFinite(state.chassisData.usableWidth)) {
+    const halfChassisWidth = state.chassisData.usableWidth / 2;
     const halfWalkwayWidth = width / 2;
     maxX = Math.max(halfChassisWidth - halfWalkwayWidth - WALKWAY_SIDE_CLEARANCE, 0);
   }
-  if (state.chassisData && Number.isFinite(state.chassisData.length)) {
-    const halfChassisLength = state.chassisData.length / 2;
+  if (state.chassisData && Number.isFinite(state.chassisData.usableLength)) {
+    const halfChassisLength = state.chassisData.usableLength / 2;
     const halfWalkwayLength = length / 2;
     maxZ = Math.max(halfChassisLength - halfWalkwayLength, 0);
   } else {
@@ -844,8 +926,16 @@ function getWalkwayBounds() {
   const width = getEffectiveWalkwayWidth();
   const length = getEffectiveWalkwayLength();
   const limits = getWalkwayOffsetLimits(width, length);
-  const centerX = THREE.MathUtils.clamp(state.walkwayOffsetX || 0, -limits.maxX, limits.maxX);
-  const centerZ = THREE.MathUtils.clamp(state.walkwayOffsetZ || 0, -limits.maxZ, limits.maxZ);
+  const offsetX = THREE.MathUtils.clamp(state.walkwayOffsetX || 0, -limits.maxX, limits.maxX);
+  const offsetZ = THREE.MathUtils.clamp(state.walkwayOffsetZ || 0, -limits.maxZ, limits.maxZ);
+  const baseX = state.chassisData && Number.isFinite(state.chassisData.usableCenterOffsetX)
+    ? state.chassisData.usableCenterOffsetX
+    : 0;
+  const baseZ = state.chassisData && Number.isFinite(state.chassisData.usableCenterOffsetZ)
+    ? state.chassisData.usableCenterOffsetZ
+    : 0;
+  const centerX = baseX + offsetX;
+  const centerZ = baseZ + offsetZ;
   return {
     width,
     length,
@@ -893,7 +983,13 @@ function syncWalkwayPositionControls(width, length, limits) {
 function applyWalkwayOffset(width, length) {
   if (!walkwayMesh) return;
   const limits = clampWalkwayOffsets(width, length);
-  walkwayMesh.position.set(state.walkwayOffsetX, WALKWAY_THICKNESS / 2, state.walkwayOffsetZ);
+  const baseX = state.chassisData && Number.isFinite(state.chassisData.usableCenterOffsetX)
+    ? state.chassisData.usableCenterOffsetX
+    : 0;
+  const baseZ = state.chassisData && Number.isFinite(state.chassisData.usableCenterOffsetZ)
+    ? state.chassisData.usableCenterOffsetZ
+    : 0;
+  walkwayMesh.position.set(baseX + state.walkwayOffsetX, WALKWAY_THICKNESS / 2, baseZ + state.walkwayOffsetZ);
   syncWalkwayPositionControls(width, length, limits);
   relocateModulesInsideBounds();
 }
@@ -1434,16 +1530,27 @@ function animate() {
 }
 
 function applyChassis(chassis) {
-  state.chassisData = { ...chassis };
+  const spatial = computeChassisSpatialMetrics(chassis);
+  state.chassisData = {
+    ...chassis,
+    length: spatial.exteriorLength,
+    width: spatial.exteriorWidth,
+    height: spatial.exteriorHeight,
+    usableLength: spatial.usableLength,
+    usableWidth: spatial.usableWidth,
+    usableHeight: spatial.usableHeight,
+    usableCenterOffsetX: spatial.usableCenterOffsetX,
+    usableCenterOffsetZ: spatial.usableCenterOffsetZ
+  };
   if (state.chassisMesh) {
     chassisGroup.remove(state.chassisMesh);
     state.chassisMesh.geometry.dispose();
     state.chassisMesh.material.dispose();
   }
 
-  const geometry = new THREE.BoxGeometry(chassis.width, chassis.height, chassis.length);
+  const geometry = new THREE.BoxGeometry(state.chassisData.width, state.chassisData.height, state.chassisData.length);
   const material = new THREE.MeshStandardMaterial({
-    color: chassis.color,
+    color: state.chassisData.color,
     metalness: 0.4,
     roughness: 0.5,
     transparent: state.chassisOpacity < 1,
@@ -1451,7 +1558,7 @@ function applyChassis(chassis) {
     depthWrite: state.chassisOpacity >= 0.999
   });
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.y = chassis.height / 2;
+  mesh.position.y = state.chassisData.height / 2;
   mesh.name = 'chassis';
   mesh.castShadow = true;
   mesh.receiveShadow = true;
@@ -1461,8 +1568,8 @@ function applyChassis(chassis) {
 
   setChassisOpacity(state.chassisOpacity);
 
-  updateGabaritPlanes(chassis);
-  updateWorkspaceBounds(chassis);
+  updateGabaritPlanes(state.chassisData);
+  updateWorkspaceBounds(state.chassisData);
   relocateWalkway();
   refreshChassisInfo();
   resetOrbitToChassis();
@@ -1471,8 +1578,13 @@ function applyChassis(chassis) {
 }
 
 function updateWorkspaceBounds(chassis) {
-  const min = new THREE.Vector3(-chassis.width / 2, 0, -chassis.length / 2);
-  const max = new THREE.Vector3(chassis.width / 2, chassis.height * 3, chassis.length / 2);
+  const usableWidth = Number.isFinite(chassis.usableWidth) ? chassis.usableWidth : chassis.width;
+  const usableLength = Number.isFinite(chassis.usableLength) ? chassis.usableLength : chassis.length;
+  const usableHeight = Number.isFinite(chassis.usableHeight) ? chassis.usableHeight : chassis.height;
+  const offsetX = Number.isFinite(chassis.usableCenterOffsetX) ? chassis.usableCenterOffsetX : 0;
+  const offsetZ = Number.isFinite(chassis.usableCenterOffsetZ) ? chassis.usableCenterOffsetZ : 0;
+  const min = new THREE.Vector3(offsetX - usableWidth / 2, 0, offsetZ - usableLength / 2);
+  const max = new THREE.Vector3(offsetX + usableWidth / 2, usableHeight * 3, offsetZ + usableLength / 2);
   workspaceBounds.set(min, max);
 }
 
@@ -1504,10 +1616,25 @@ function relocateWalkway() {
 
 function refreshChassisInfo() {
   const chassis = state.chassisData;
+  if (!chassis) return;
   ui.chassisPtac.textContent = `${chassis.ptac.toLocaleString('fr-FR')} kg`;
   ui.chassisWheelbase.textContent = `${chassis.wheelbase.toFixed(2)} m`;
   ui.chassisMass.textContent = `${chassis.mass.toLocaleString('fr-FR')} kg`;
-  ui.chassisDims.textContent = `${chassis.length.toFixed(2)} m × ${chassis.width.toFixed(2)} m × ${chassis.height.toFixed(2)} m`;
+  const formatMeters = (value) => Number.isFinite(value) ? `${value.toFixed(2)} m` : 'N/A';
+  const exteriorDims = `${formatMeters(chassis.length)} × ${formatMeters(chassis.width)} × ${formatMeters(chassis.height)}`;
+  const usableDiffers = (
+    Number.isFinite(chassis.usableLength) && Math.abs(chassis.usableLength - chassis.length) > 0.01
+  ) || (
+    Number.isFinite(chassis.usableWidth) && Math.abs(chassis.usableWidth - chassis.width) > 0.01
+  ) || (
+    Number.isFinite(chassis.usableHeight) && Math.abs(chassis.usableHeight - chassis.height) > 0.01
+  );
+  if (usableDiffers) {
+    const usableDims = `${formatMeters(chassis.usableLength)} × ${formatMeters(chassis.usableWidth)} × ${formatMeters(chassis.usableHeight)}`;
+    ui.chassisDims.textContent = `${exteriorDims} (utile : ${usableDims})`;
+  } else {
+    ui.chassisDims.textContent = exteriorDims;
+  }
 }
 
 function addModuleInstance(moduleId) {
@@ -1772,7 +1899,9 @@ function resetOrbitToChassis() {
   orbitState.azimuth = DEFAULT_ORBIT_AZIMUTH;
   orbitState.polar = DEFAULT_ORBIT_POLAR;
   if (state.chassisData) {
-    orbitState.target.set(0, state.chassisData.height / 2, 0);
+    const targetX = Number.isFinite(state.chassisData.usableCenterOffsetX) ? state.chassisData.usableCenterOffsetX : 0;
+    const targetZ = Number.isFinite(state.chassisData.usableCenterOffsetZ) ? state.chassisData.usableCenterOffsetZ : 0;
+    orbitState.target.set(targetX, state.chassisData.height / 2, targetZ);
     orbitState.radius = Math.max(6, state.chassisData.length * 0.9);
   } else {
     orbitState.target.set(0, DEFAULT_ORBIT_TARGET_Y, 0);
