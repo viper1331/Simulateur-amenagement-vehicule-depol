@@ -17,6 +17,11 @@
         <button id="btn-export-png">Exporter PNG</button>
         <button id="btn-analyze">Analyser</button>
         <button id="btn-compare">Comparer (A vs B)</button>
+        <div class="quality-selector" role="group" aria-label="Qualité de rendu">
+          <button type="button" data-quality-mode="draft">Draft</button>
+          <button type="button" data-quality-mode="balanced">Balanced</button>
+          <button type="button" data-quality-mode="high">High</button>
+        </div>
       </div>
       <input type="file" id="file-input" accept="application/json" hidden>
     </header>
@@ -450,6 +455,13 @@
             <div class="detail"><span>Position Y (m) :</span><input type="number" id="detail-pos-y" step="0.001"></div>
             <div class="detail"><span>Position Z (m) :</span><input type="number" id="detail-pos-z" step="0.001"></div>
             <div class="detail"><span>Rotation Y :</span><input type="number" id="detail-rot-y" step="5"></div>
+            <div class="detail"><span>Tolérance :</span><span id="detail-tolerance">Δdim = —</span></div>
+          </div>
+          <div class="door-panel">
+            <h3>Cinématiques d'accès</h3>
+            <div id="door-controls" class="door-controls is-empty">
+              <p class="door-empty">Aucune cinématique disponible pour ce module.</p>
+            </div>
           </div>
         </section>
         <section>
@@ -460,6 +472,16 @@
             <div><span>Charge essieu AV :</span><span id="analysis-front">-</span></div>
             <div><span>Charge essieu AR :</span><span id="analysis-rear">-</span></div>
             <div><span>Marge PTAC :</span><span id="analysis-margin">-</span></div>
+            <div class="axle-loads">
+              <div class="axle">
+                <span>Répartition AV :</span>
+                <div class="axle-bar" id="axle-front-bar"><span id="axle-front-label">-</span></div>
+              </div>
+              <div class="axle">
+                <span>Répartition AR :</span>
+                <div class="axle-bar" id="axle-rear-bar"><span id="axle-rear-label">-</span></div>
+              </div>
+            </div>
           </div>
         </section>
         <section>
