@@ -374,6 +374,11 @@ let raycaster, pointer, dragPlane, dragActive = false;
 let dragOffset = new THREE.Vector3();
 let workspaceBounds = new THREE.Box3();
 let walkwayMesh, chassisGroup, gabaritGroup;
+
+const DEFAULT_WALKWAY_LENGTH = 12;
+const WALKWAY_THICKNESS = 0.05;
+const MIN_WALKWAY_WIDTH = 0.4;
+const WALKWAY_SIDE_CLEARANCE = 0.05;
 const orbitState = {
   active: false,
   pointer: new THREE.Vector2(),
@@ -426,7 +431,7 @@ function initScene() {
   gabaritGroup = new THREE.Group();
   scene.add(gabaritGroup);
 
-  walkwayMesh = createWalkwayMesh(state.walkwayWidth, state.walkwayVisible);
+  walkwayMesh = createWalkwayMesh(state.walkwayWidth, DEFAULT_WALKWAY_LENGTH, state.walkwayVisible);
   scene.add(walkwayMesh);
 
   raycaster = new THREE.Raycaster();
@@ -449,26 +454,70 @@ function getViewportRatio() {
   return getViewportWidth() / getViewportHeight();
 }
 
-function createWalkwayMesh(width, visible) {
+function toMillimeters(value) {
+  return Math.round(value * 1000);
+}
+
+function getEffectiveWalkwayLength() {
+  if (!state.chassisData || !Number.isFinite(state.chassisData.length)) {
+    return DEFAULT_WALKWAY_LENGTH;
+  }
+  return Math.max(state.chassisData.length, 0.5);
+}
+
+function getEffectiveWalkwayWidth() {
+  let width = state.walkwayWidth;
+  if (state.chassisData && Number.isFinite(state.chassisData.width)) {
+    const maxWidth = Math.max(state.chassisData.width - WALKWAY_SIDE_CLEARANCE * 2, 0.1);
+    width = Math.min(width, maxWidth);
+    const minWidth = Math.min(MIN_WALKWAY_WIDTH, maxWidth);
+    width = Math.max(width, minWidth);
+    width = Math.min(width, state.chassisData.width);
+  } else {
+    width = Math.max(width, MIN_WALKWAY_WIDTH);
+  }
+  return Math.max(width, 0.1);
+}
+
+function syncWalkwayControls(width) {
+  if (!ui.walkwayRange || !ui.walkwayValue) return;
+  const widthMm = toMillimeters(width);
+  const defaultMin = Number(ui.walkwayRange.dataset.minDefault || ui.walkwayRange.min || widthMm);
+  const defaultMax = Number(ui.walkwayRange.dataset.maxDefault || ui.walkwayRange.max || widthMm);
+  const nextMin = widthMm < defaultMin ? widthMm : defaultMin;
+  const nextMax = widthMm > defaultMax ? widthMm : defaultMax;
+  ui.walkwayRange.min = nextMin;
+  ui.walkwayRange.max = nextMax;
+  ui.walkwayRange.value = widthMm;
+  ui.walkwayValue.textContent = `${widthMm} mm`;
+}
+
+function createWalkwayMesh(width, length, visible) {
   const mat = new THREE.MeshBasicMaterial({
     color: 0x21c77a,
     opacity: 0.18,
     transparent: true,
     depthWrite: false
   });
-  const geom = new THREE.BoxGeometry(width, 0.05, 12);
+  const geom = new THREE.BoxGeometry(width, WALKWAY_THICKNESS, length);
   const mesh = new THREE.Mesh(geom, mat);
-  mesh.position.y = 0.03;
+  mesh.position.y = WALKWAY_THICKNESS / 2;
   mesh.visible = visible;
   mesh.name = 'walkway';
   return mesh;
 }
 
 function updateWalkway() {
-  const width = state.walkwayWidth;
-  const length = state.chassisData ? state.chassisData.length - 0.4 : 12;
+  const width = getEffectiveWalkwayWidth();
+  const length = getEffectiveWalkwayLength();
+  if (Math.abs(width - state.walkwayWidth) > 1e-6) {
+    state.walkwayWidth = width;
+    syncWalkwayControls(width);
+  } else if (ui.walkwayRange && ui.walkwayValue) {
+    syncWalkwayControls(width);
+  }
   walkwayMesh.geometry.dispose();
-  walkwayMesh.geometry = new THREE.BoxGeometry(width, 0.05, length);
+  walkwayMesh.geometry = new THREE.BoxGeometry(width, WALKWAY_THICKNESS, length);
   walkwayMesh.visible = state.walkwayVisible;
 }
 
@@ -512,6 +561,11 @@ function initUI() {
   ui.btnAddModule = document.getElementById('btn-add-module');
   ui.moduleForm = document.getElementById('module-form');
 
+  if (ui.walkwayRange) {
+    ui.walkwayRange.dataset.minDefault = ui.walkwayRange.min || '0';
+    ui.walkwayRange.dataset.maxDefault = ui.walkwayRange.max || '0';
+  }
+
   setFormCollapsed(ui.btnAddChassis, ui.chassisForm, true);
   setFormCollapsed(ui.btnAddModule, ui.moduleForm, true);
 
@@ -522,8 +576,7 @@ function initUI() {
     applyChassis(initialChassis);
   }
   populateModuleButtons();
-  ui.walkwayRange.value = state.walkwayWidth * 1000;
-  ui.walkwayValue.textContent = `${Math.round(state.walkwayWidth * 1000)} mm`;
+  syncWalkwayControls(state.walkwayWidth);
 
   bindUIEvents();
 }
@@ -606,7 +659,6 @@ function bindUIEvents() {
 
   ui.walkwayRange.addEventListener('input', () => {
     state.walkwayWidth = mmToM(Number(ui.walkwayRange.value));
-    ui.walkwayValue.textContent = `${ui.walkwayRange.value} mm`;
     updateWalkway();
     updateAnalysis();
   });
@@ -857,21 +909,22 @@ function updateGabaritPlanes(chassis) {
     opacity: 0.08,
     side: THREE.DoubleSide
   });
-  const planeGeom = new THREE.PlaneGeometry(chassis.length, chassis.height * 2);
+  const planeHeight = Math.max(chassis.height, 0.1);
+  const planeGeom = new THREE.PlaneGeometry(chassis.length, planeHeight);
 
   const leftPlane = new THREE.Mesh(planeGeom, mat.clone());
   leftPlane.rotation.y = Math.PI / 2;
-  leftPlane.position.set(-chassis.width / 2, chassis.height, 0);
+  leftPlane.position.set(-chassis.width / 2, planeHeight / 2, 0);
 
   const rightPlane = new THREE.Mesh(planeGeom, mat.clone());
   rightPlane.rotation.y = Math.PI / 2;
-  rightPlane.position.set(chassis.width / 2, chassis.height, 0);
+  rightPlane.position.set(chassis.width / 2, planeHeight / 2, 0);
 
   gabaritGroup.add(leftPlane, rightPlane);
 }
 
 function relocateWalkway() {
-  walkwayMesh.position.set(0, 0.03, 0);
+  walkwayMesh.position.set(0, WALKWAY_THICKNESS / 2, 0);
   updateWalkway();
 }
 
@@ -1349,8 +1402,7 @@ function restoreState(data) {
 
   state.walkwayWidth = data.walkwayWidth || 0.8;
   state.walkwayVisible = data.walkwayVisible !== undefined ? data.walkwayVisible : true;
-  ui.walkwayRange.value = Math.round(state.walkwayWidth * 1000);
-  ui.walkwayValue.textContent = `${ui.walkwayRange.value} mm`;
+  syncWalkwayControls(state.walkwayWidth);
   ui.walkwayToggle.checked = state.walkwayVisible;
   updateWalkway();
   walkwayMesh.visible = state.walkwayVisible;
