@@ -1,14 +1,13 @@
 import * as THREE from './libs/three.module.js';
 import { unzipSync, strFromU8 } from './libs/fflate.module.js';
-import { RoundedBoxGeometry } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { TubeGeometry } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/src/geometries/TubeGeometry.js';
-import { LineSegments2 } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/lines/LineSegments2.js';
-import { LineSegmentsGeometry } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/lines/LineSegmentsGeometry.js';
-import { LineMaterial } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/lines/LineMaterial.js';
-import { EffectComposer } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/postprocessing/EffectComposer.js';
-import { RenderPass } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/postprocessing/RenderPass.js';
-import { SMAAPass } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/postprocessing/SMAAPass.js';
-import { SSAOPass } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/postprocessing/SSAOPass.js';
+import { RoundedBoxGeometry } from './libs/jsm/geometries/RoundedBoxGeometry.js';
+import { LineSegments2 } from './libs/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from './libs/jsm/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from './libs/jsm/lines/LineMaterial.js';
+import { EffectComposer } from './libs/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from './libs/jsm/postprocessing/RenderPass.js';
+import { SMAAPass } from './libs/jsm/postprocessing/SMAAPass.js';
+import { SSAOPass } from './libs/jsm/postprocessing/SSAOPass.js';
 
 const mmToM = (value) => (Number.isFinite(value) ? value / 1000 : null);
 const mToMm = (value) => (Number.isFinite(value) ? value * 1000 : null);
