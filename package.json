@@ -12,7 +12,7 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "three": "^0.160.0"
+    "three": "^0.161.0"
   },
   "devDependencies": {
     "@electron/get": "file:vendor/@electron/get",
