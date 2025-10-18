@@ -6,17 +6,41 @@ Application 3D temps réel permettant d'aménager un véhicule de dépollution a
 
 - Visualisation 3D en temps réel basée sur Three.js.
 - Châssis paramétrables avec gabarits latéraux translucides.
-- Modules procéduraux (cuves, pompes, enrouleurs, armoires) déplaçables et rotatifs.
+- Modules procéduraux (cuves, pompes, enrouleurs, armoires) déplaçables et rotatifs sur les trois axes.
 - Modes de manipulation :
   - **T** : translation (glisser pour déplacer, pas de 10 mm).
-  - **R** : rotation (glisser latéralement pour pivoter par pas de 5°).
+  - **R** : rotation (glisser latéralement pour pivoter autour de l'axe Y par pas de 5°).
   - **Suppr** : suppression du module sélectionné.
 - Undo/Redo : `Ctrl+Z` / `Ctrl+Y`.
+- Mode mesure point-à-point (`M`) avec annotation de distance en millimètres.
 - Calculs en temps réel : masse totale, centre de gravité, charges essieux, marge PTAC.
 - Détection d'encombrement du couloir de circulation.
 - Export/Import JSON de la configuration.
 - Export de la vue 3D en PNG encodé Base64.
 - Comparaison rapide entre deux configurations successives (A/B).
+
+## Qualité visuelle
+
+Trois préréglages de rendu sont disponibles dans la barre supérieure :
+
+- **Draft** : tonemapping atténué, ombres et SSAO désactivés pour les revues rapides.
+- **Balanced** : configuration par défaut, ombres douces (PCF), SSAO léger et rendu physique.
+- **High** : exposition ACES renforcée, ombres 2048², SSAO approfondi, anti-aliasing SMAA.
+
+Le moteur Three.js est configuré en `SRGBColorSpace`, `ACESFilmicToneMapping`, éclairage physique réaliste et matériaux `MeshPhysicalMaterial`. Les principales pièces (châssis, cuves, armoires, enrouleurs) sont modélisées avec des chanfreins procéduraux (`RoundedBoxGeometry`) et des arêtes industrielles en `LineSegments2` pour un rendu plus crédible. Un contact shadow temps réel complète l'illusion d'ancrage au sol.
+
+## Cinématiques d'accès
+
+Les modules disposant de portes ou volets intègrent désormais des cinématiques :
+
+- Portes battantes avec pivot local, ouverture progressive et poignée instanciée.
+- Volets à levage vertical avec translation paramétrée.
+- Boutons **Ouvrir / Fermer** dans le panneau de droite, animation interpolée (ease-in/out) et persistance lors de la sauvegarde.
+- Détection d'interférences : si le volume animé intersecte un autre module, un badge *Accès obstrué* s'affiche.
+
+## Tolérances dimensionnelles
+
+Chaque module indique la différence entre ses dimensions théoriques (issues des catalogues en millimètres) et la géométrie générée. La valeur `Δdim` affichée dans le panneau de droite correspond à l'écart maximal mesuré sur les trois axes, arrondi au dixième de millimètre. Cette vérification garantit que la modélisation procédurale reste dans la tolérance ±1 mm imposée par les fiches techniques.
 
 ## Prérequis
 
