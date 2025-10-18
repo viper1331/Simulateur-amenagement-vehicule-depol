@@ -113,6 +113,112 @@ const moduleCatalog = [
   }
 ];
 
+function parseNumberField(value, label, { min = -Infinity, max = Infinity } = {}) {
+  const numberValue = Number(value);
+  if (!Number.isFinite(numberValue)) {
+    throw new Error(`Valeur invalide pour ${label}.`);
+  }
+  if (numberValue < min) {
+    throw new Error(`${label} doit être supérieur ou égal à ${min}.`);
+  }
+  if (numberValue > max) {
+    throw new Error(`${label} doit être inférieur ou égal à ${max}.`);
+  }
+  return numberValue;
+}
+
+function parseColorValue(value, fallback) {
+  if (!value) return fallback;
+  const sanitized = value.trim().replace('#', '').toLowerCase();
+  if (!/^[0-9a-f]{6}$/.test(sanitized)) {
+    throw new Error('Veuillez choisir une couleur valide (format hexadécimal).');
+  }
+  return parseInt(sanitized, 16);
+}
+
+function sanitizeChassisDefinition(definition) {
+  const sanitized = {
+    id: definition.id || `custom-chassis-${Date.now()}`,
+    name: definition.name || 'Châssis personnalisé',
+    length: Number(definition.length) || 1,
+    width: Number(definition.width) || 1,
+    height: Number(definition.height) || 1,
+    mass: Number(definition.mass) || 0,
+    ptac: Number(definition.ptac) || 0,
+    wheelbase: Number(definition.wheelbase) || 1,
+    frontAxleOffset: Number(definition.frontAxleOffset) || 0,
+    color: definition.color !== undefined ? definition.color : 0x8d939c,
+    isCustom: definition.isCustom !== undefined ? definition.isCustom : true
+  };
+  return sanitized;
+}
+
+function sanitizeModuleDefinition(definition) {
+  const sizeSource = definition.size || definition;
+  const sizeX = Number(sizeSource.x ?? sizeSource.sizeX ?? sizeSource.width ?? 0.2) || 0.2;
+  const sizeY = Number(sizeSource.y ?? sizeSource.sizeY ?? sizeSource.height ?? 0.2) || 0.2;
+  const sizeZ = Number(sizeSource.z ?? sizeSource.sizeZ ?? sizeSource.length ?? 0.2) || 0.2;
+  const sanitized = {
+    id: definition.id || `custom-module-${Date.now()}`,
+    type: definition.type || 'Custom',
+    name: definition.name || 'Module personnalisé',
+    size: { x: sizeX, y: sizeY, z: sizeZ },
+    color: definition.color !== undefined ? definition.color : 0x2c7ef4,
+    massEmpty: Number(definition.massEmpty ?? definition.mass ?? 0) || 0,
+    fluidVolume: Number(definition.fluidVolume ?? definition.volume ?? 0) || 0,
+    defaultFill: Math.min(100, Math.max(0, Number(definition.defaultFill ?? definition.fill ?? 0) || 0)),
+    density: Number(definition.density ?? 1000) || 1000,
+    isCustom: definition.isCustom !== undefined ? definition.isCustom : true
+  };
+  return sanitized;
+}
+
+function addChassisDefinition(definition) {
+  const sanitized = sanitizeChassisDefinition(definition);
+  const index = chassisCatalog.findIndex((item) => item.id === sanitized.id);
+  if (index !== -1) {
+    chassisCatalog[index] = sanitized;
+  } else {
+    chassisCatalog.push(sanitized);
+  }
+  populateChassisOptions(sanitized.id);
+  return sanitized;
+}
+
+function addModuleDefinition(definition) {
+  const sanitized = sanitizeModuleDefinition(definition);
+  const index = moduleCatalog.findIndex((item) => item.id === sanitized.id);
+  if (index !== -1) {
+    moduleCatalog[index] = sanitized;
+  } else {
+    moduleCatalog.push(sanitized);
+  }
+  populateModuleButtons();
+  return moduleCatalog[index !== -1 ? index : moduleCatalog.length - 1];
+}
+
+function setFormCollapsed(button, form, collapsed) {
+  if (!button || !form) return;
+  const collapsedLabel = button.dataset.collapsedLabel || button.textContent;
+  const expandedLabel = button.dataset.expandedLabel || collapsedLabel;
+  form.classList.toggle('is-collapsed', collapsed);
+  button.textContent = collapsed ? collapsedLabel : expandedLabel;
+}
+
+function toggleInlineForm(button, form) {
+  if (!button || !form) return;
+  const shouldCollapse = !form.classList.contains('is-collapsed');
+  setFormCollapsed(button, form, shouldCollapse);
+}
+
+function closeInlineForm(button, form, reset = false) {
+  if (!button || !form) return;
+  setFormCollapsed(button, form, true);
+  if (reset) {
+    form.reset();
+  }
+}
+
 const state = {
   chassis: null,
   chassisMesh: null,
@@ -269,8 +375,18 @@ function initUI() {
   ui.modalClose = document.getElementById('modal-close');
   ui.modalOk = document.getElementById('modal-ok');
   ui.fileInput = document.getElementById('file-input');
+  ui.btnAddChassis = document.getElementById('btn-add-chassis');
+  ui.chassisForm = document.getElementById('chassis-form');
+  ui.btnAddModule = document.getElementById('btn-add-module');
+  ui.moduleForm = document.getElementById('module-form');
 
-  populateChassisOptions();
+  setFormCollapsed(ui.btnAddChassis, ui.chassisForm, true);
+  setFormCollapsed(ui.btnAddModule, ui.moduleForm, true);
+
+  const initialChassis = populateChassisOptions();
+  if (initialChassis) {
+    applyChassis(initialChassis);
+  }
   populateModuleButtons();
   ui.walkwayRange.value = state.walkwayWidth * 1000;
   ui.walkwayValue.textContent = `${Math.round(state.walkwayWidth * 1000)} mm`;
@@ -278,20 +394,33 @@ function initUI() {
   bindUIEvents();
 }
 
-function populateChassisOptions() {
+function populateChassisOptions(preferredId) {
+  if (!ui.chassisSelect) return null;
+  const previousValue = preferredId || (state.chassisData ? state.chassisData.id : ui.chassisSelect.value);
+  ui.chassisSelect.innerHTML = '';
+  let fallback = null;
   chassisCatalog.forEach((chassis) => {
     const opt = document.createElement('option');
     opt.value = chassis.id;
     opt.textContent = chassis.name;
     ui.chassisSelect.appendChild(opt);
+    if (!fallback) {
+      fallback = chassis;
+    }
   });
-  ui.chassisSelect.value = chassisCatalog[0].id;
-  applyChassis(chassisCatalog[0]);
+  let selected = chassisCatalog.find((item) => item.id === previousValue) || fallback;
+  if (selected) {
+    ui.chassisSelect.value = selected.id;
+  }
+  return selected || null;
 }
 
 function populateModuleButtons() {
+  if (!ui.moduleButtons) return;
+  ui.moduleButtons.innerHTML = '';
   moduleCatalog.forEach((module) => {
     const btn = document.createElement('button');
+    btn.type = 'button';
     btn.textContent = `${module.type} - ${module.name}`;
     btn.addEventListener('click', () => {
       addModuleInstance(module.id);
@@ -301,6 +430,28 @@ function populateModuleButtons() {
 }
 
 function bindUIEvents() {
+  if (ui.btnAddChassis && ui.chassisForm) {
+    ui.btnAddChassis.addEventListener('click', () => toggleInlineForm(ui.btnAddChassis, ui.chassisForm));
+    const cancelButton = ui.chassisForm.querySelector('[data-close-form]');
+    if (cancelButton) {
+      cancelButton.addEventListener('click', () => {
+        closeInlineForm(ui.btnAddChassis, ui.chassisForm, true);
+      });
+    }
+    ui.chassisForm.addEventListener('submit', handleCustomChassisSubmit);
+  }
+
+  if (ui.btnAddModule && ui.moduleForm) {
+    ui.btnAddModule.addEventListener('click', () => toggleInlineForm(ui.btnAddModule, ui.moduleForm));
+    const cancelButton = ui.moduleForm.querySelector('[data-close-form]');
+    if (cancelButton) {
+      cancelButton.addEventListener('click', () => {
+        closeInlineForm(ui.btnAddModule, ui.moduleForm, true);
+      });
+    }
+    ui.moduleForm.addEventListener('submit', handleCustomModuleSubmit);
+  }
+
   window.addEventListener('resize', onResize);
   renderer.domElement.addEventListener('pointerdown', onPointerDown);
   renderer.domElement.addEventListener('pointermove', onPointerMove);
@@ -396,6 +547,87 @@ function bindUIEvents() {
   ui.modalOk.addEventListener('click', hideModal);
 }
 
+function handleCustomChassisSubmit(event) {
+  event.preventDefault();
+  if (!ui.chassisForm) return;
+  const form = ui.chassisForm;
+  const data = new FormData(form);
+  try {
+    const name = (data.get('name') || '').toString().trim();
+    if (!name) {
+      throw new Error('Veuillez renseigner un nom pour le châssis.');
+    }
+    const length = parseNumberField(data.get('length'), 'Longueur', { min: 1 });
+    const width = parseNumberField(data.get('width'), 'Largeur', { min: 1 });
+    const height = parseNumberField(data.get('height'), 'Hauteur', { min: 0.5 });
+    const mass = parseNumberField(data.get('mass'), 'Masse à vide', { min: 0 });
+    const ptac = parseNumberField(data.get('ptac'), 'PTAC', { min: 0 });
+    const wheelbase = parseNumberField(data.get('wheelbase'), 'Empattement', { min: 1, max: length });
+    const frontAxleOffset = parseNumberField(data.get('frontAxleOffset'), 'Décalage essieu avant', { min: 0, max: length / 2 });
+    const color = parseColorValue(data.get('color'), 0x6b7a8f);
+    const id = `custom-chassis-${Date.now()}`;
+    const chassis = addChassisDefinition({
+      id,
+      name,
+      length,
+      width,
+      height,
+      mass,
+      ptac,
+      wheelbase,
+      frontAxleOffset,
+      color,
+      isCustom: true
+    });
+    const catalogChassis = chassisCatalog.find((item) => item.id === chassis.id) || chassis;
+    ui.chassisSelect.value = catalogChassis.id;
+    applyChassis(catalogChassis);
+    closeInlineForm(ui.btnAddChassis, ui.chassisForm, true);
+    pushHistory();
+  } catch (error) {
+    showModal('Erreur', error.message);
+  }
+}
+
+function handleCustomModuleSubmit(event) {
+  event.preventDefault();
+  if (!ui.moduleForm) return;
+  const form = ui.moduleForm;
+  const data = new FormData(form);
+  try {
+    const name = (data.get('name') || '').toString().trim();
+    if (!name) {
+      throw new Error('Veuillez renseigner un nom pour le module.');
+    }
+    const type = (data.get('type') || '').toString().trim() || 'Custom';
+    const sizeX = parseNumberField(data.get('sizeX'), 'Largeur', { min: 0.1 });
+    const sizeY = parseNumberField(data.get('sizeY'), 'Hauteur', { min: 0.1 });
+    const sizeZ = parseNumberField(data.get('sizeZ'), 'Longueur', { min: 0.1 });
+    const massEmpty = parseNumberField(data.get('massEmpty'), 'Masse à vide', { min: 0 });
+    const fluidVolume = parseNumberField(data.get('fluidVolume'), 'Volume de fluide', { min: 0 });
+    const defaultFill = parseNumberField(data.get('defaultFill'), 'Remplissage par défaut', { min: 0, max: 100 });
+    const density = parseNumberField(data.get('density'), 'Densité', { min: 1 });
+    const color = parseColorValue(data.get('color'), 0x2c7ef4);
+    const id = `custom-module-${Date.now()}`;
+    const definition = addModuleDefinition({
+      id,
+      type,
+      name,
+      size: { x: sizeX, y: sizeY, z: sizeZ },
+      massEmpty,
+      fluidVolume,
+      defaultFill,
+      density,
+      color,
+      isCustom: true
+    });
+    closeInlineForm(ui.btnAddModule, ui.moduleForm, true);
+    addModuleInstance(definition.id);
+  } catch (error) {
+    showModal('Erreur', error.message);
+  }
+}
+
 function onResize() {
   renderer.setSize(getViewportWidth(), getViewportHeight());
   camera.aspect = getViewportRatio();
@@ -481,9 +713,10 @@ function addModuleInstance(moduleId) {
   const definition = moduleCatalog.find((m) => m.id === moduleId);
   if (!definition) return;
 
+  const color = definition.color !== undefined ? definition.color : 0x777777;
   const geometry = new THREE.BoxGeometry(definition.size.x, definition.size.y, definition.size.z);
   const material = new THREE.MeshStandardMaterial({
-    color: definition.color,
+    color,
     metalness: definition.type === 'Tank' ? 0.6 : 0.2,
     roughness: 0.45
   });
@@ -506,11 +739,12 @@ function addModuleInstance(moduleId) {
     type: definition.type,
     name: definition.name,
     mesh,
-    fill: definition.defaultFill,
+    fill: Math.min(100, Math.max(0, definition.defaultFill ?? 0)),
     massEmpty: definition.massEmpty,
     fluidVolume: definition.fluidVolume,
     density: definition.density,
-    size: { ...definition.size }
+    size: { ...definition.size },
+    color
   };
 
   scene.add(mesh);
@@ -900,34 +1134,52 @@ function resetScene() {
 }
 
 function serializeState() {
-  return {
-    chassisId: state.chassisData.id,
+  const serialized = {
+    chassisId: state.chassisData ? state.chassisData.id : null,
     walkwayWidth: state.walkwayWidth,
     walkwayVisible: state.walkwayVisible,
     modules: state.modules.map((mod) => ({
       id: mod.definitionId,
+      type: mod.type,
       name: mod.name,
       fill: mod.fill,
       massEmpty: mod.massEmpty,
       fluidVolume: mod.fluidVolume,
       density: mod.density,
-      size: mod.size,
+      size: { ...mod.size },
+      color: mod.color,
       position: mod.mesh.position.toArray(),
       rotationY: mod.mesh.rotation.y
     }))
   };
+  if (state.chassisData && state.chassisData.isCustom) {
+    serialized.chassisDefinition = { ...state.chassisData };
+  }
+  return serialized;
 }
 
 function restoreState(data) {
-  const chassis = chassisCatalog.find((c) => c.id === data.chassisId) || chassisCatalog[0];
-  applyChassis(chassis);
-  ui.chassisSelect.value = chassis.id;
+  let chassis = chassisCatalog.find((c) => c.id === data.chassisId) || null;
+  if (!chassis && data.chassisDefinition) {
+    const restored = addChassisDefinition({ ...data.chassisDefinition, isCustom: true });
+    chassis = chassisCatalog.find((c) => c.id === restored.id) || restored;
+  }
+  if (!chassis) {
+    chassis = chassisCatalog[0];
+  }
+  if (chassis) {
+    populateChassisOptions(chassis.id);
+    applyChassis(chassis);
+    ui.chassisSelect.value = chassis.id;
+  }
+
   state.walkwayWidth = data.walkwayWidth || 0.8;
   state.walkwayVisible = data.walkwayVisible !== undefined ? data.walkwayVisible : true;
   ui.walkwayRange.value = Math.round(state.walkwayWidth * 1000);
   ui.walkwayValue.textContent = `${ui.walkwayRange.value} mm`;
   ui.walkwayToggle.checked = state.walkwayVisible;
   updateWalkway();
+  walkwayMesh.visible = state.walkwayVisible;
 
   state.modules.forEach((mod) => {
     scene.remove(mod.mesh);
@@ -937,28 +1189,54 @@ function restoreState(data) {
   state.modules = [];
 
   (data.modules || []).forEach((item) => {
-    const definition = moduleCatalog.find((m) => m.id === item.id);
-    if (!definition) return;
-    const geometry = new THREE.BoxGeometry(item.size.x, item.size.y, item.size.z);
-    const material = new THREE.MeshStandardMaterial({ color: definition ? definition.color : 0x777777, metalness: 0.4, roughness: 0.5 });
+    if (!item) return;
+    let definition = moduleCatalog.find((m) => m.id === item.id) || null;
+    if (!definition) {
+      definition = addModuleDefinition({
+        id: item.id,
+        type: item.type || 'Custom',
+        name: item.name || 'Module personnalisé',
+        size: item.size,
+        massEmpty: item.massEmpty,
+        fluidVolume: item.fluidVolume,
+        defaultFill: item.fill,
+        density: item.density,
+        color: item.color,
+        isCustom: true
+      });
+    }
+    const size = item.size || definition.size;
+    if (!size) return;
+    const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
+    const baseColor = item.color !== undefined ? item.color : (definition.color !== undefined ? definition.color : 0x777777);
+    const material = new THREE.MeshStandardMaterial({
+      color: baseColor,
+      metalness: (definition.type || '').toLowerCase() === 'tank' ? 0.6 : 0.2,
+      roughness: 0.45
+    });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    mesh.position.fromArray(item.position);
-    mesh.rotation.y = item.rotationY;
-    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(geometry), new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 }));
+    const positionArray = item.position && item.position.length === 3 ? item.position : [0, size.y / 2, 0];
+    mesh.position.fromArray(positionArray);
+    mesh.rotation.y = item.rotationY || 0;
+    const edges = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geometry),
+      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 })
+    );
     mesh.add(edges);
     const instance = {
       id: `module-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       definitionId: item.id,
-      type: definition.type,
+      type: item.type || definition.type,
       name: item.name || definition.name,
       mesh,
-      fill: item.fill,
-      massEmpty: item.massEmpty,
-      fluidVolume: item.fluidVolume,
-      density: item.density,
-      size: item.size
+      fill: Math.min(100, Math.max(0, item.fill ?? definition.defaultFill ?? 0)),
+      massEmpty: item.massEmpty ?? definition.massEmpty,
+      fluidVolume: item.fluidVolume ?? definition.fluidVolume,
+      density: item.density ?? definition.density,
+      size: { ...size },
+      color: baseColor
     };
     syncModuleState(instance);
     scene.add(mesh);

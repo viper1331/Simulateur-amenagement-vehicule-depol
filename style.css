@@ -45,6 +45,25 @@ button:disabled {
   cursor: not-allowed;
 }
 
+button.secondary {
+  background: rgba(62, 166, 255, 0.18);
+  border: 1px solid rgba(62, 166, 255, 0.4);
+  color: var(--text);
+}
+
+button.secondary:hover {
+  background: rgba(62, 166, 255, 0.35);
+}
+
+button.ghost {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+button.ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 #app {
   display: flex;
   flex-direction: column;
@@ -102,6 +121,37 @@ button:disabled {
   font-size: 0.85rem;
   color: var(--muted);
   margin-bottom: 0.3rem;
+}
+
+.inline-form {
+  margin-top: 0.6rem;
+  padding: 0.7rem;
+  border: 1px dashed rgba(62, 166, 255, 0.4);
+  border-radius: 6px;
+  background: rgba(62, 166, 255, 0.08);
+  display: grid;
+  gap: 0.6rem;
+}
+
+.inline-form.is-collapsed {
+  display: none;
+}
+
+.inline-form .form-row {
+  display: flex;
+  flex-direction: column;
+}
+
+.inline-form .form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+}
+
+.inline-form input[type="color"] {
+  padding: 0;
+  border: none;
+  height: 32px;
 }
 
 select, input[type="number"], input[type="range"] {
