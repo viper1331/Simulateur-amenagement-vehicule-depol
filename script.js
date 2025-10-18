@@ -738,7 +738,26 @@ let workspaceBounds = new THREE.Box3();
 let walkwayMesh, chassisGroup, gabaritGroup;
 
 function formatModuleDimensions(size) {
+  if (!size || !Number.isFinite(size.x) || !Number.isFinite(size.y) || !Number.isFinite(size.z)) {
+    return 'Dimensions inconnues';
+  }
   return `${size.x.toFixed(2)} m × ${size.y.toFixed(2)} m × ${size.z.toFixed(2)} m`;
+}
+
+function formatMass(value) {
+  return Number.isFinite(value) ? `${value.toLocaleString('fr-FR')} kg` : '—';
+}
+
+function formatFluidVolume(value) {
+  return Number.isFinite(value) ? `${value.toLocaleString('fr-FR')} L` : '—';
+}
+
+function formatDensity(value) {
+  return Number.isFinite(value) ? `${value.toLocaleString('fr-FR')} kg/m³` : '—';
+}
+
+function formatPercentage(value) {
+  return Number.isFinite(value) ? `${value.toLocaleString('fr-FR')} %` : '—';
 }
 
 function disposeModuleLabel(module) {
@@ -1160,30 +1179,134 @@ function populateChassisOptions(preferredId) {
 function populateModuleButtons() {
   if (!ui.moduleButtons) return;
   ui.moduleButtons.innerHTML = '';
+
+  if (moduleCatalog.length === 0) {
+    const emptyState = document.createElement('p');
+    emptyState.className = 'module-empty-state';
+    emptyState.textContent = "Aucun module n'est disponible pour le moment.";
+    ui.moduleButtons.appendChild(emptyState);
+    return;
+  }
+
+  const createMetaLine = (label, value) => {
+    const line = document.createElement('div');
+    line.className = 'module-card-meta-line';
+    const labelSpan = document.createElement('span');
+    labelSpan.textContent = label;
+    const valueSpan = document.createElement('span');
+    valueSpan.textContent = value;
+    line.appendChild(labelSpan);
+    line.appendChild(valueSpan);
+    return line;
+  };
+
+  const groups = new Map();
   moduleCatalog.forEach((module) => {
-    const row = document.createElement('div');
-    row.className = 'module-button-row';
+    const type = module.type || 'Autres';
+    if (!groups.has(type)) {
+      groups.set(type, []);
+    }
+    groups.get(type).push(module);
+  });
 
-    const addBtn = document.createElement('button');
-    addBtn.type = 'button';
-    addBtn.classList.add('module-add-button');
-    addBtn.textContent = `${module.type} - ${module.name}`;
-    addBtn.addEventListener('click', () => {
-      addModuleInstance(module.id);
+  const sortedTypes = [...groups.keys()].sort((a, b) => a.localeCompare(b, 'fr', { sensitivity: 'base' }));
+
+  sortedTypes.forEach((type) => {
+    const groupWrapper = document.createElement('section');
+    groupWrapper.className = 'module-group';
+
+    const header = document.createElement('div');
+    header.className = 'module-group-header';
+
+    const title = document.createElement('h3');
+    title.className = 'module-group-title';
+    title.textContent = type;
+
+    const count = document.createElement('span');
+    count.className = 'module-group-count';
+    const modules = groups.get(type).slice().sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
+    count.textContent = `${modules.length} module${modules.length > 1 ? 's' : ''}`;
+
+    header.appendChild(title);
+    header.appendChild(count);
+    groupWrapper.appendChild(header);
+
+    const grid = document.createElement('div');
+    grid.className = 'module-card-grid';
+
+    modules.forEach((module) => {
+      const card = document.createElement('article');
+      card.className = 'module-card';
+
+      const name = document.createElement('h4');
+      name.className = 'module-card-title';
+      name.textContent = module.name;
+      card.appendChild(name);
+
+      if (module.containsFluid) {
+        const flags = document.createElement('div');
+        flags.className = 'module-card-flags';
+
+        const fluidFlag = document.createElement('span');
+        fluidFlag.textContent = 'Fluide';
+        flags.appendChild(fluidFlag);
+
+        const fillText = formatPercentage(module.defaultFill);
+        if (fillText !== '—') {
+          const fillFlag = document.createElement('span');
+          fillFlag.textContent = `Remplissage ${fillText}`;
+          flags.appendChild(fillFlag);
+        }
+
+        card.appendChild(flags);
+      }
+
+      const meta = document.createElement('div');
+      meta.className = 'module-card-meta';
+      meta.appendChild(createMetaLine('Masse', formatMass(module.massEmpty)));
+      meta.appendChild(createMetaLine('Dimensions', formatModuleDimensions(module.size)));
+
+      if (module.containsFluid) {
+        const volumeText = formatFluidVolume(module.fluidVolume);
+        if (volumeText !== '—') {
+          meta.appendChild(createMetaLine('Volume', volumeText));
+        }
+        const densityText = formatDensity(module.density);
+        if (densityText !== '—') {
+          meta.appendChild(createMetaLine('Densité', densityText));
+        }
+      }
+
+      card.appendChild(meta);
+
+      const actions = document.createElement('div');
+      actions.className = 'module-card-actions';
+
+      const addBtn = document.createElement('button');
+      addBtn.type = 'button';
+      addBtn.textContent = 'Ajouter';
+      addBtn.addEventListener('click', () => {
+        addModuleInstance(module.id);
+      });
+
+      const editBtn = document.createElement('button');
+      editBtn.type = 'button';
+      editBtn.classList.add('ghost');
+      editBtn.textContent = 'Modifier';
+      editBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        startModuleEdit(module);
+      });
+
+      actions.appendChild(addBtn);
+      actions.appendChild(editBtn);
+      card.appendChild(actions);
+
+      grid.appendChild(card);
     });
 
-    const editBtn = document.createElement('button');
-    editBtn.type = 'button';
-    editBtn.classList.add('ghost', 'module-edit-button');
-    editBtn.textContent = 'Modifier';
-    editBtn.addEventListener('click', (event) => {
-      event.stopPropagation();
-      startModuleEdit(module);
-    });
-
-    row.appendChild(addBtn);
-    row.appendChild(editBtn);
-    ui.moduleButtons.appendChild(row);
+    groupWrapper.appendChild(grid);
+    ui.moduleButtons.appendChild(groupWrapper);
   });
 }
 
