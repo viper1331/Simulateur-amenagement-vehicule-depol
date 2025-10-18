@@ -15,6 +15,7 @@ const fs = require("fs-extra");
 const got_1 = require("got");
 const path = require("path");
 const ProgressBar = require("progress");
+const proxy_1 = require("./proxy");
 const PROGRESS_BAR_DELAY_IN_SECONDS = 30;
 class GotDownloader {
     async download(url, targetFilePath, options) {
@@ -22,6 +23,17 @@ class GotDownloader {
             options = {};
         }
         const { quiet, getProgressCallback } = options, gotOptions = __rest(options, ["quiet", "getProgressCallback"]);
+        const proxyAgent = proxy_1.getProxyAgentForUrl(url);
+        if (proxyAgent) {
+            const agentKey = url.startsWith('https:') ? 'https' : 'http';
+            const existingAgent = gotOptions.agent;
+            if (existingAgent === undefined) {
+                gotOptions.agent = { [agentKey]: proxyAgent };
+            }
+            else if (typeof existingAgent === 'object' && existingAgent !== null && !('addRequest' in existingAgent)) {
+                gotOptions.agent = Object.assign(Object.assign({}, existingAgent), { [agentKey]: proxyAgent });
+            }
+        }
         let downloadCompleted = false;
         let bar;
         let progressPercent;

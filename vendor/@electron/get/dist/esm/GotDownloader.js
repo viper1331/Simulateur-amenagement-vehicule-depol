@@ -13,6 +13,7 @@ import * as fs from 'fs-extra';
 import got, { HTTPError } from 'got';
 import * as path from 'path';
 import * as ProgressBar from 'progress';
+import { getProxyAgentForUrl } from './proxy';
 const PROGRESS_BAR_DELAY_IN_SECONDS = 30;
 export class GotDownloader {
     async download(url, targetFilePath, options) {
@@ -20,6 +21,17 @@ export class GotDownloader {
             options = {};
         }
         const { quiet, getProgressCallback } = options, gotOptions = __rest(options, ["quiet", "getProgressCallback"]);
+        const proxyAgent = getProxyAgentForUrl(url);
+        if (proxyAgent) {
+            const agentKey = url.startsWith('https:') ? 'https' : 'http';
+            const existingAgent = gotOptions.agent;
+            if (existingAgent === undefined) {
+                gotOptions.agent = { [agentKey]: proxyAgent };
+            }
+            else if (typeof existingAgent === 'object' && existingAgent !== null && !('addRequest' in existingAgent)) {
+                gotOptions.agent = { ...existingAgent, [agentKey]: proxyAgent };
+            }
+        }
         let downloadCompleted = false;
         let bar;
         let progressPercent;

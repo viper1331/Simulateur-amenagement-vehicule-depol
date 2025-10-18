@@ -1,0 +1,37 @@
+{
+  "name": "https-proxy-agent",
+  "version": "7.0.6",
+  "description": "An HTTP(s) proxy `http.Agent` implementation for HTTPS",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TooTallNate/proxy-agents.git",
+    "directory": "packages/https-proxy-agent"
+  },
+  "keywords": [
+    "https",
+    "proxy",
+    "endpoint",
+    "agent"
+  ],
+  "author": "Nathan Rajlich <nathan@tootallnate.net> (http://n8.io/)",
+  "license": "MIT",
+  "dependencies": {
+    "agent-base": "file:../agent-base",
+    "debug": "4"
+  },
+  "engines": {
+    "node": ">= 14"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "jest --env node --verbose --bail test/test.ts",
+    "test-e2e": "jest --env node --verbose --bail test/e2e.test.ts",
+    "lint": "eslint --ext .ts",
+    "pack": "node ../../scripts/pack.mjs"
+  }
+}
