@@ -584,6 +584,15 @@ input[type="range"] {
   font-size: 0.9rem;
 }
 
+#selection-details .detail.detail-actions {
+  justify-content: flex-start;
+  gap: 0.5rem;
+}
+
+#selection-details .detail.detail-actions button {
+  flex: 1 1 50%;
+}
+
 #selection-details .detail.hidden {
   display: none;
 }
