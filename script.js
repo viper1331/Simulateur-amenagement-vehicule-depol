@@ -2060,7 +2060,9 @@ function initUI() {
   ui.detailPosX = document.getElementById('detail-pos-x');
   ui.detailPosY = document.getElementById('detail-pos-y');
   ui.detailPosZ = document.getElementById('detail-pos-z');
+  ui.detailRotX = document.getElementById('detail-rot-x');
   ui.detailRotY = document.getElementById('detail-rot-y');
+  ui.detailRotZ = document.getElementById('detail-rot-z');
   ui.analysisMass = document.getElementById('analysis-mass');
   ui.analysisCoG = document.getElementById('analysis-cog');
   ui.analysisFront = document.getElementById('analysis-front');
@@ -2640,14 +2642,24 @@ function bindUIEvents() {
     });
   });
 
-  ui.detailRotY.addEventListener('change', () => {
-    if (!state.selected) return;
-    const value = Number(ui.detailRotY.value);
-    state.selected.mesh.rotation.y = degToRad(value);
-    clampToBounds(state.selected.mesh.position, state.selected);
-    syncModuleState(state.selected);
-    updateAnalysis();
-    pushHistory();
+  const rotationInputs = [
+    { element: ui.detailRotX, axis: 'x' },
+    { element: ui.detailRotY, axis: 'y' },
+    { element: ui.detailRotZ, axis: 'z' }
+  ];
+  rotationInputs.forEach(({ element, axis }) => {
+    if (!element) return;
+    element.addEventListener('change', () => {
+      if (!state.selected) return;
+      const value = Number(element.value);
+      if (!Number.isFinite(value)) return;
+      state.selected.mesh.rotation[axis] = degToRad(value);
+      clampToBounds(state.selected.mesh.position, state.selected);
+      syncModuleState(state.selected);
+      updateSelectionDetails();
+      updateAnalysis();
+      pushHistory();
+    });
   });
 
   document.getElementById('btn-new').addEventListener('click', () => {
@@ -3043,7 +3055,9 @@ function updateSelectionDetails() {
     ui.detailPosX.value = '';
     ui.detailPosY.value = '';
     ui.detailPosZ.value = '';
-    ui.detailRotY.value = '';
+    if (ui.detailRotX) ui.detailRotX.value = '';
+    if (ui.detailRotY) ui.detailRotY.value = '';
+    if (ui.detailRotZ) ui.detailRotZ.value = '';
     if (ui.detailLibraryRow) ui.detailLibraryRow.classList.add('hidden');
     if (ui.detailLibrarySourceRow) ui.detailLibrarySourceRow.classList.add('hidden');
     if (ui.detailLibraryLicenseRow) ui.detailLibraryLicenseRow.classList.add('hidden');
@@ -3066,7 +3080,9 @@ function updateSelectionDetails() {
   ui.detailPosX.value = mod.mesh.position.x.toFixed(3);
   ui.detailPosY.value = mod.mesh.position.y.toFixed(3);
   ui.detailPosZ.value = mod.mesh.position.z.toFixed(3);
-  ui.detailRotY.value = Math.round(radToDeg(mod.mesh.rotation.y));
+  if (ui.detailRotX) ui.detailRotX.value = Math.round(radToDeg(mod.mesh.rotation.x));
+  if (ui.detailRotY) ui.detailRotY.value = Math.round(radToDeg(mod.mesh.rotation.y));
+  if (ui.detailRotZ) ui.detailRotZ.value = Math.round(radToDeg(mod.mesh.rotation.z));
 
   if (ui.detailLibrary && ui.detailLibraryRow) {
     setDetailRowText(ui.detailLibraryRow, ui.detailLibrary, mod.libraryName || mod.libraryId || '');
@@ -3309,7 +3325,11 @@ function intersectModules(event) {
 }
 
 function moduleFootprintHalfExtents(mod) {
-  const rotation = mod.mesh ? mod.mesh.rotation.y : (mod.rotation || 0);
+  const rotation = mod.mesh
+    ? mod.mesh.rotation.y
+    : (typeof mod.rotation === 'number'
+        ? mod.rotation
+        : (mod.rotation && typeof mod.rotation.y === 'number' ? mod.rotation.y : 0));
   const halfXLocal = mod.size.x / 2;
   const halfZLocal = mod.size.z / 2;
   const cos = Math.cos(rotation);
@@ -3518,7 +3538,7 @@ function clampToBounds(target, module) {
 
 function syncModuleState(mod) {
   mod.position = mod.mesh.position.clone();
-  mod.rotation = mod.mesh.rotation.y;
+  mod.rotation = mod.mesh.rotation.clone();
 }
 
 function relocateModulesInsideBounds() {
@@ -3756,6 +3776,7 @@ function serializeState() {
       libraryWebsite: mod.libraryWebsite,
       isCustom: mod.isCustom,
       position: mod.mesh.position.toArray(),
+      rotation: [mod.mesh.rotation.x, mod.mesh.rotation.y, mod.mesh.rotation.z],
       rotationY: mod.mesh.rotation.y
     }))
   };
@@ -3875,7 +3896,12 @@ function restoreState(data) {
     });
     const positionArray = item.position && item.position.length === 3 ? item.position : [0, size.y / 2, 0];
     mesh.position.fromArray(positionArray);
-    mesh.rotation.y = item.rotationY || 0;
+    const rotationArray = Array.isArray(item.rotation) && item.rotation.length === 3 ? item.rotation : null;
+    if (rotationArray) {
+      mesh.rotation.set(rotationArray[0], rotationArray[1], rotationArray[2]);
+    } else {
+      mesh.rotation.set(0, item.rotationY || 0, 0);
+    }
     const containsFluid = item.containsFluid !== undefined ? item.containsFluid : definition.containsFluid;
     const instanceFill = containsFluid
       ? Math.min(100, Math.max(0, item.fill ?? definition.defaultFill ?? 0))
