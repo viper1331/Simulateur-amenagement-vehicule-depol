@@ -142,6 +142,35 @@ button.ghost:hover {
   flex-direction: column;
 }
 
+.inline-form .form-row.optional .field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.inline-form .form-row.optional .field-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.inline-form .form-row.optional.is-disabled {
+  opacity: 0.6;
+}
+
+.inline-form .form-row.optional.is-disabled .field-toggle {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.inline-form .form-row.optional input[disabled] {
+  cursor: not-allowed;
+}
+
 .inline-form .form-actions {
   display: flex;
   justify-content: flex-end;
