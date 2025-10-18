@@ -726,6 +726,48 @@ function updateGridQuality(divisions) {
   grid.visible = state.showGrid;
 }
 
+function createContactShadowMesh({ size = 18, fade = 2.2, opacity = 0.25 } = {}) {
+  const geometry = new THREE.PlaneGeometry(size, size);
+  const uniforms = {
+    uOpacity: { value: opacity },
+    uFade: { value: fade }
+  };
+  const material = new THREE.ShaderMaterial({
+    uniforms,
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    side: THREE.DoubleSide,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv - 0.5;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      varying vec2 vUv;
+      uniform float uOpacity;
+      uniform float uFade;
+      void main() {
+        float dist = length(vUv) * uFade;
+        float alpha = smoothstep(1.0, 0.0, dist);
+        gl_FragColor = vec4(0.0, 0.0, 0.0, alpha * uOpacity);
+      }
+    `
+  });
+
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = -0.001;
+  mesh.receiveShadow = false;
+  mesh.castShadow = false;
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 1;
+  mesh.name = 'contact-shadow';
+  return mesh;
+}
+
 function updateContactShadowVisibility(visible, opacity) {
   if (!contactShadowMesh) return;
   contactShadowMesh.visible = visible;
