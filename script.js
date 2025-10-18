@@ -355,6 +355,7 @@ const state = {
   chassis: null,
   chassisMesh: null,
   chassisData: null,
+  chassisOpacity: 1,
   walkwayWidth: 0.8,
   walkwayVisible: true,
   modules: [],
@@ -498,6 +499,26 @@ function syncWalkwayControls(width) {
   ui.walkwayValue.textContent = `${widthMm} mm`;
 }
 
+function syncChassisTransparencyControls() {
+  if (!ui.chassisTransparencyRange || !ui.chassisTransparencyValue) return;
+  const transparencyPercent = Math.round((1 - state.chassisOpacity) * 100);
+  ui.chassisTransparencyRange.value = `${transparencyPercent}`;
+  ui.chassisTransparencyValue.textContent = `${transparencyPercent}%`;
+}
+
+function setChassisOpacity(opacity) {
+  const clamped = Math.min(1, Math.max(0, opacity));
+  state.chassisOpacity = clamped;
+  syncChassisTransparencyControls();
+  if (state.chassisMesh && state.chassisMesh.material) {
+    const material = state.chassisMesh.material;
+    material.opacity = clamped;
+    material.transparent = clamped < 1;
+    material.depthWrite = clamped >= 0.999;
+    material.needsUpdate = true;
+  }
+}
+
 function createWalkwayMesh(width, length, visible) {
   const mat = new THREE.MeshBasicMaterial({
     color: 0x21c77a,
@@ -538,6 +559,8 @@ function initUI() {
   ui.walkwayRange = document.getElementById('walkway-width');
   ui.walkwayValue = document.getElementById('walkway-width-value');
   ui.walkwayToggle = document.getElementById('walkway-toggle');
+  ui.chassisTransparencyRange = document.getElementById('chassis-transparency');
+  ui.chassisTransparencyValue = document.getElementById('chassis-transparency-value');
   ui.btnRecenterView = document.getElementById('btn-recenter-view');
   ui.detailName = document.getElementById('detail-name');
   ui.detailMass = document.getElementById('detail-mass');
@@ -584,6 +607,7 @@ function initUI() {
   }
   populateModuleButtons();
   syncWalkwayControls(state.walkwayWidth);
+  syncChassisTransparencyControls();
 
   bindUIEvents();
 }
@@ -677,6 +701,14 @@ function bindUIEvents() {
     state.walkwayVisible = ui.walkwayToggle.checked;
     walkwayMesh.visible = state.walkwayVisible;
     updateAnalysis();
+    pushHistory();
+  });
+
+  ui.chassisTransparencyRange.addEventListener('input', () => {
+    const transparency = Number(ui.chassisTransparencyRange.value) / 100;
+    setChassisOpacity(1 - transparency);
+  });
+  ui.chassisTransparencyRange.addEventListener('change', () => {
     pushHistory();
   });
 
@@ -887,7 +919,14 @@ function applyChassis(chassis) {
   }
 
   const geometry = new THREE.BoxGeometry(chassis.width, chassis.height, chassis.length);
-  const material = new THREE.MeshStandardMaterial({ color: chassis.color, metalness: 0.4, roughness: 0.5 });
+  const material = new THREE.MeshStandardMaterial({
+    color: chassis.color,
+    metalness: 0.4,
+    roughness: 0.5,
+    transparent: state.chassisOpacity < 1,
+    opacity: state.chassisOpacity,
+    depthWrite: state.chassisOpacity >= 0.999
+  });
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.y = chassis.height / 2;
   mesh.name = 'chassis';
@@ -896,6 +935,8 @@ function applyChassis(chassis) {
 
   chassisGroup.add(mesh);
   state.chassisMesh = mesh;
+
+  setChassisOpacity(state.chassisOpacity);
 
   updateGabaritPlanes(chassis);
   updateWorkspaceBounds(chassis);
@@ -1412,6 +1453,7 @@ function resetScene() {
 function serializeState() {
   const serialized = {
     chassisId: state.chassisData ? state.chassisData.id : null,
+    chassisOpacity: state.chassisOpacity,
     walkwayWidth: state.walkwayWidth,
     walkwayVisible: state.walkwayVisible,
     modules: state.modules.map((mod) => ({
@@ -1448,6 +1490,8 @@ function restoreState(data) {
     applyChassis(chassis);
     ui.chassisSelect.value = chassis.id;
   }
+
+  setChassisOpacity(data.chassisOpacity !== undefined ? data.chassisOpacity : 1);
 
   state.walkwayWidth = data.walkwayWidth || 0.8;
   state.walkwayVisible = data.walkwayVisible !== undefined ? data.walkwayVisible : true;
