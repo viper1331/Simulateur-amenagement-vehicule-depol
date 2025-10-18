@@ -4,6 +4,7 @@ import { unzipSync, strFromU8 } from './libs/fflate.module.js';
 const mmToM = (value) => (Number.isFinite(value) ? value / 1000 : null);
 const mToMm = (value) => (Number.isFinite(value) ? value * 1000 : null);
 const DEFAULT_SNAP_STEP = 0.001;
+const SELECTION_PROXY_PADDING = 0.15;
 const snapValue = (value, step = DEFAULT_SNAP_STEP) => Math.round(value / step) * step;
 const degToRad = (deg) => deg * Math.PI / 180;
 const radToDeg = (rad) => rad * 180 / Math.PI;
@@ -380,6 +381,14 @@ function createModuleGeometry(shape, size) {
   return new THREE.BoxGeometry(Math.max(safeSize.x, 0.05), Math.max(safeSize.y, 0.05), Math.max(safeSize.z, 0.05));
 }
 
+function createSelectionProxyGeometry(size) {
+  const padding = Math.max(SELECTION_PROXY_PADDING, 0);
+  const width = Math.max((Number(size?.x) || 0) + padding, 0.1);
+  const height = Math.max((Number(size?.y) || 0) + padding, 0.1);
+  const depth = Math.max((Number(size?.z) || 0) + padding, 0.1);
+  return new THREE.BoxGeometry(width, height, depth);
+}
+
 function updateMeshGeometryFromDefinition(mesh, definition) {
   if (!mesh) return;
   const shape = normalizeModuleShape(definition.shape);
@@ -395,6 +404,11 @@ function updateMeshGeometryFromDefinition(mesh, definition) {
         child.geometry.dispose();
       }
       child.geometry = new THREE.EdgesGeometry(geometry);
+    } else if (child.userData && child.userData.isSelectionProxy) {
+      if (child.geometry) {
+        child.geometry.dispose();
+      }
+      child.geometry = createSelectionProxyGeometry(definition.size);
     }
   });
 }
@@ -420,6 +434,17 @@ function createModuleMesh(definition, { size, color } = {}) {
     new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 })
   );
   mesh.add(edges);
+  const selectionProxyMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    depthTest: false
+  });
+  const selectionProxy = new THREE.Mesh(createSelectionProxyGeometry(resolvedSize), selectionProxyMaterial);
+  selectionProxy.name = 'selection-proxy';
+  selectionProxy.userData.isSelectionProxy = true;
+  mesh.add(selectionProxy);
   return { mesh, color: baseColor, shape, size: { ...resolvedSize } };
 }
 
@@ -1821,6 +1846,8 @@ function initScene() {
   scene.add(walkwayMesh);
 
   raycaster = new THREE.Raycaster();
+  raycaster.params.Line = raycaster.params.Line || {};
+  raycaster.params.Line.threshold = 0.1;
   pointer = new THREE.Vector2();
   dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
@@ -3011,6 +3038,9 @@ function selectModule(instance) {
   state.selected = instance;
   state.modules.forEach((mod) => {
     mod.mesh.children.forEach((child) => {
+      if (child.userData && child.userData.isSelectionProxy) {
+        return;
+      }
       if (child.material && child.material.opacity !== undefined) {
         child.material.opacity = mod === instance ? 0.85 : 0.4;
       }
@@ -3305,7 +3335,7 @@ function intersectModules(event) {
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
   const meshes = state.modules.map((mod) => mod.mesh);
-  return raycaster.intersectObjects(meshes, false);
+  return raycaster.intersectObjects(meshes, true);
 }
 
 function moduleFootprintHalfExtents(mod) {
