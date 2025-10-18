@@ -251,6 +251,7 @@ const moduleLibraries = new Map([
 
 const MODULE_SHAPES = ['box', 'cylinder'];
 const DEFAULT_MAGNET_DISTANCE = 0.15;
+const DEFAULT_PASTE_OFFSET = 0.25;
 
 function slugify(value) {
   if (value === null || value === undefined) {
@@ -421,6 +422,75 @@ function createModuleMesh(definition, { size, color } = {}) {
   );
   mesh.add(edges);
   return { mesh, color: baseColor, shape, size: { ...resolvedSize } };
+}
+
+function createModuleInstance(definition, overrides = {}) {
+  if (!definition) return null;
+
+  const sizeOverride = overrides.size ? { ...overrides.size } : null;
+  const colorOverride = overrides.color;
+  const { mesh, color, shape, size } = createModuleMesh(definition, {
+    size: sizeOverride || undefined,
+    color: colorOverride
+  });
+
+  const resolvedContainsFluid = overrides.containsFluid !== undefined
+    ? Boolean(overrides.containsFluid)
+    : Boolean(definition.containsFluid);
+
+  const overrideFluidVolume = toNullableNumber(overrides.fluidVolume);
+  const definitionFluidVolume = toNullableNumber(definition.fluidVolume);
+  const resolvedFluidVolume = resolvedContainsFluid
+    ? (overrideFluidVolume ?? definitionFluidVolume ?? 0)
+    : 0;
+
+  const overrideDensity = toNullableNumber(overrides.density);
+  const definitionDensity = toNullableNumber(definition.density);
+  const resolvedDensity = resolvedContainsFluid
+    ? (overrideDensity ?? definitionDensity ?? 0)
+    : 0;
+
+  const overrideFill = toNullableNumber(overrides.fill);
+  const definitionFill = toNullableNumber(definition.defaultFill);
+  const resolvedFill = resolvedContainsFluid
+    ? Math.min(100, Math.max(0, overrideFill ?? definitionFill ?? 0))
+    : 0;
+
+  const overrideMass = toNullableNumber(overrides.massEmpty);
+  const definitionMass = toNullableNumber(definition.massEmpty);
+  const resolvedMassEmpty = overrideMass ?? definitionMass ?? 0;
+
+  const instance = {
+    id: overrides.instanceId || `module-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    definitionId: definition.id,
+    type: overrides.type || definition.type,
+    name: overrides.name || definition.name,
+    mesh,
+    shape: overrides.shape ? normalizeModuleShape(overrides.shape) : shape,
+    fill: resolvedFill,
+    massEmpty: resolvedMassEmpty,
+    fluidVolume: resolvedFluidVolume,
+    density: resolvedDensity,
+    containsFluid: resolvedContainsFluid,
+    size: { ...size },
+    color: colorOverride !== undefined ? colorOverride : color,
+    isCustom: overrides.isCustom !== undefined ? Boolean(overrides.isCustom) : Boolean(definition.isCustom),
+    libraryId: overrides.libraryId || definition.libraryId,
+    libraryName: overrides.libraryName || definition.libraryName,
+    librarySource: overrides.librarySource || definition.librarySource,
+    libraryLicense: overrides.libraryLicense || definition.libraryLicense,
+    libraryWebsite: overrides.libraryWebsite || definition.libraryWebsite,
+    labelSprite: null
+  };
+
+  if (overrides.position instanceof THREE.Vector3) {
+    mesh.position.copy(overrides.position);
+  }
+  if (overrides.rotation !== undefined) {
+    mesh.rotation.y = overrides.rotation;
+  }
+
+  return instance;
 }
 
 function parseNumberField(value, label, { min = -Infinity, max = Infinity } = {}) {
@@ -1182,6 +1252,7 @@ const state = {
   magnetSnapDistance: DEFAULT_MAGNET_DISTANCE,
   modules: [],
   selected: null,
+  clipboard: null,
   mode: 'translate',
   compareReference: null,
   lastAnalysis: null
@@ -2966,45 +3037,39 @@ function refreshChassisInfo() {
   }
 }
 
-function addModuleInstance(moduleId) {
-  const definition = moduleCatalog.find((m) => m.id === moduleId);
-  if (!definition) return;
+function addModuleInstance(moduleId, options = {}) {
+  const { definition: fallbackDefinition } = options;
+  const definition = moduleCatalog.find((m) => m.id === moduleId) || fallbackDefinition;
+  if (!definition) return null;
 
-  const { mesh, color } = createModuleMesh(definition);
+  const { skipSelect = false, skipHistory = false, skipAnalysis = false } = options;
+  const instanceOptions = { ...options };
+  delete instanceOptions.skipSelect;
+  delete instanceOptions.skipHistory;
+  delete instanceOptions.skipAnalysis;
+  delete instanceOptions.definition;
 
-  const containsFluid = Boolean(definition.containsFluid);
-  const initialFill = containsFluid ? Math.min(100, Math.max(0, definition.defaultFill ?? 0)) : 0;
-  const instance = {
-    id: `module-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-    definitionId: moduleId,
-    type: definition.type,
-    name: definition.name,
-    mesh,
-    shape: normalizeModuleShape(definition.shape),
-    fill: initialFill,
-    massEmpty: definition.massEmpty,
-    fluidVolume: containsFluid ? definition.fluidVolume : 0,
-    density: containsFluid ? definition.density : 0,
-    containsFluid,
-    size: { ...definition.size },
-    color,
-    isCustom: Boolean(definition.isCustom),
-    libraryId: definition.libraryId,
-    libraryName: definition.libraryName,
-    librarySource: definition.librarySource,
-    libraryLicense: definition.libraryLicense,
-    libraryWebsite: definition.libraryWebsite,
-    labelSprite: null
-  };
+  const instance = createModuleInstance(definition, instanceOptions);
+  if (!instance) return null;
 
-  scene.add(mesh);
+  scene.add(instance.mesh);
   state.modules.push(instance);
-  clampToBounds(mesh.position, instance);
+  clampToBounds(instance.mesh.position, instance);
   syncModuleState(instance);
   updateModuleLabel(instance);
-  selectModule(instance);
-  updateAnalysis();
-  pushHistory();
+  if (skipSelect) {
+    updateModuleList();
+    updateSelectionDetails();
+  } else {
+    selectModule(instance);
+  }
+  if (!skipAnalysis) {
+    updateAnalysis();
+  }
+  if (!skipHistory) {
+    pushHistory();
+  }
+  return instance;
 }
 
 function selectModule(instance) {
@@ -3542,6 +3607,114 @@ function separateOverlappingModules() {
   updateAnalysis();
 }
 
+function isTextInputTarget(target) {
+  if (!target) return false;
+  const tag = target.tagName ? target.tagName.toUpperCase() : '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+    return true;
+  }
+  return Boolean(target.isContentEditable);
+}
+
+function copySelectedModule() {
+  if (!state.selected) return;
+  const mod = state.selected;
+  state.clipboard = {
+    definitionId: mod.definitionId,
+    fallbackDefinition: {
+      id: mod.definitionId,
+      type: mod.type,
+      name: mod.name,
+      shape: mod.shape,
+      size: { ...mod.size },
+      massEmpty: mod.massEmpty,
+      fluidVolume: mod.fluidVolume,
+      defaultFill: mod.fill,
+      density: mod.density,
+      containsFluid: mod.containsFluid,
+      color: mod.color,
+      libraryId: mod.libraryId,
+      libraryName: mod.libraryName,
+      librarySource: mod.librarySource,
+      libraryLicense: mod.libraryLicense,
+      libraryWebsite: mod.libraryWebsite,
+      isCustom: mod.isCustom
+    },
+    overrides: {
+      type: mod.type,
+      name: mod.name,
+      size: { ...mod.size },
+      color: mod.color,
+      massEmpty: mod.massEmpty,
+      fluidVolume: mod.fluidVolume,
+      density: mod.density,
+      containsFluid: mod.containsFluid,
+      fill: mod.fill,
+      libraryId: mod.libraryId,
+      libraryName: mod.libraryName,
+      librarySource: mod.librarySource,
+      libraryLicense: mod.libraryLicense,
+      libraryWebsite: mod.libraryWebsite,
+      isCustom: mod.isCustom,
+      shape: mod.shape
+    },
+    transform: {
+      position: {
+        x: mod.mesh.position.x,
+        y: mod.mesh.position.y,
+        z: mod.mesh.position.z
+      },
+      rotation: mod.mesh.rotation.y
+    }
+  };
+}
+
+function pasteModuleFromClipboard() {
+  if (!state.clipboard) return;
+  const clipboard = state.clipboard;
+  const catalogDefinition = moduleCatalog.find((m) => m.id === clipboard.definitionId) || null;
+  const fallbackDefinition = clipboard.fallbackDefinition
+    ? {
+        ...clipboard.fallbackDefinition,
+        size: { ...clipboard.fallbackDefinition.size }
+      }
+    : null;
+  const definition = catalogDefinition || fallbackDefinition;
+  if (!definition) return;
+
+  const overrides = clipboard.overrides ? { ...clipboard.overrides } : {};
+  if (overrides.size) {
+    overrides.size = { ...overrides.size };
+  }
+
+  const transform = clipboard.transform || null;
+  const basePosition = transform && transform.position
+    ? new THREE.Vector3(transform.position.x, transform.position.y, transform.position.z)
+    : new THREE.Vector3(0, (overrides.size?.y || definition.size?.y || 0.2) / 2, 0);
+  const position = basePosition.add(new THREE.Vector3(DEFAULT_PASTE_OFFSET, 0, DEFAULT_PASTE_OFFSET));
+
+  const addOptions = {
+    ...overrides,
+    position,
+    rotation: transform ? transform.rotation : undefined
+  };
+  if (!catalogDefinition && definition) {
+    addOptions.definition = definition;
+  }
+
+  const instance = addModuleInstance(definition.id, addOptions);
+  if (instance && state.clipboard) {
+    state.clipboard.transform = {
+      position: {
+        x: instance.mesh.position.x,
+        y: instance.mesh.position.y,
+        z: instance.mesh.position.z
+      },
+      rotation: instance.mesh.rotation.y
+    };
+  }
+}
+
 function onKeyDown(event) {
   if (event.code === 'Delete' && state.selected) {
     removeModule(state.selected);
@@ -3562,6 +3735,16 @@ function onKeyDown(event) {
   if (event.ctrlKey && event.code === 'KeyY') {
     event.preventDefault();
     redo();
+  }
+  if (event.ctrlKey && event.code === 'KeyC') {
+    if (isTextInputTarget(event.target)) return;
+    event.preventDefault();
+    copySelectedModule();
+  }
+  if (event.ctrlKey && event.code === 'KeyV') {
+    if (isTextInputTarget(event.target)) return;
+    event.preventDefault();
+    pasteModuleFromClipboard();
   }
 }
 
@@ -3715,6 +3898,7 @@ function resetScene() {
   });
   state.modules = [];
   state.selected = null;
+  state.clipboard = null;
   updateModuleList();
   updateSelectionDetails();
   updateAnalysis();
@@ -3819,6 +4003,7 @@ function restoreState(data) {
   });
   state.modules = [];
   state.selected = null;
+  state.clipboard = null;
 
   (data.modules || []).forEach((item) => {
     if (!item) return;
@@ -3867,47 +4052,33 @@ function restoreState(data) {
     const baseColor = item.color !== undefined ? item.color : (definition.color !== undefined ? definition.color : 0x777777);
     const resolvedShape = normalizeModuleShape(item.shape || definition.shape);
     const resolvedSize = { ...definition.size, ...size };
-    const { mesh } = createModuleMesh({
-      ...definition,
-      shape: resolvedShape,
-      size: resolvedSize,
-      color: baseColor
-    });
-    const positionArray = item.position && item.position.length === 3 ? item.position : [0, size.y / 2, 0];
-    mesh.position.fromArray(positionArray);
-    mesh.rotation.y = item.rotationY || 0;
+    const positionArray = item.position && item.position.length === 3 ? item.position : [0, resolvedSize.y / 2, 0];
+    const position = new THREE.Vector3().fromArray(positionArray);
     const containsFluid = item.containsFluid !== undefined ? item.containsFluid : definition.containsFluid;
-    const instanceFill = containsFluid
-      ? Math.min(100, Math.max(0, item.fill ?? definition.defaultFill ?? 0))
-      : 0;
-    const instanceFluidVolume = containsFluid ? (item.fluidVolume ?? definition.fluidVolume) : 0;
-    const instanceDensity = containsFluid ? (item.density ?? definition.density) : 0;
-    const instance = {
-      id: `module-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      definitionId: item.id,
+    addModuleInstance(definition.id, {
+      definition,
+      position,
+      rotation: item.rotationY || 0,
+      containsFluid,
+      fill: item.fill,
+      fluidVolume: item.fluidVolume,
+      density: item.density,
+      massEmpty: item.massEmpty,
+      size: resolvedSize,
+      color: baseColor,
       type: item.type || definition.type,
       name: item.name || definition.name,
-      mesh,
-      shape: resolvedShape,
-      fill: instanceFill,
-      massEmpty: item.massEmpty ?? definition.massEmpty,
-      fluidVolume: instanceFluidVolume,
-      density: instanceDensity,
-      containsFluid: Boolean(containsFluid),
-      size: { ...size },
-      color: baseColor,
-      isCustom: item.isCustom !== undefined ? item.isCustom : Boolean(definition.isCustom),
       libraryId: definition.libraryId,
       libraryName: definition.libraryName,
       librarySource: definition.librarySource,
       libraryLicense: definition.libraryLicense,
       libraryWebsite: definition.libraryWebsite,
-      labelSprite: null
-    };
-    syncModuleState(instance);
-    scene.add(mesh);
-    updateModuleLabel(instance);
-    state.modules.push(instance);
+      isCustom: item.isCustom !== undefined ? item.isCustom : Boolean(definition.isCustom),
+      shape: resolvedShape,
+      skipSelect: true,
+      skipHistory: true,
+      skipAnalysis: true
+    });
   });
 
   relocateModulesInsideBounds();
