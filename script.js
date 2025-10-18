@@ -281,6 +281,23 @@ function sanitizeModuleDefinition(definition) {
   const sizeX = Number(sizeSource.x ?? sizeSource.sizeX ?? sizeSource.width ?? 0.2) || 0.2;
   const sizeY = Number(sizeSource.y ?? sizeSource.sizeY ?? sizeSource.height ?? 0.2) || 0.2;
   const sizeZ = Number(sizeSource.z ?? sizeSource.sizeZ ?? sizeSource.length ?? 0.2) || 0.2;
+  const rawFluidVolume = toNullableNumber(definition.fluidVolume ?? definition.volume);
+  const fluidVolume = rawFluidVolume !== null ? rawFluidVolume : null;
+
+  let defaultFill = toNullableNumber(definition.defaultFill ?? definition.fill);
+  let density = toNullableNumber(definition.density);
+  if (fluidVolume === null) {
+    defaultFill = null;
+    density = null;
+  } else {
+    if (defaultFill !== null) {
+      defaultFill = Math.min(100, Math.max(0, defaultFill));
+    }
+    if (density !== null) {
+      density = Math.max(1, density);
+    }
+  }
+
   const sanitized = {
     id: definition.id || `custom-module-${Date.now()}`,
     type: definition.type || 'Custom',
@@ -288,9 +305,9 @@ function sanitizeModuleDefinition(definition) {
     size: { x: sizeX, y: sizeY, z: sizeZ },
     color: definition.color !== undefined ? definition.color : 0x2c7ef4,
     massEmpty: Number(definition.massEmpty ?? definition.mass ?? 0) || 0,
-    fluidVolume: Number(definition.fluidVolume ?? definition.volume ?? 0) || 0,
-    defaultFill: Math.min(100, Math.max(0, Number(definition.defaultFill ?? definition.fill ?? 0) || 0)),
-    density: Number(definition.density ?? 1000) || 1000,
+    fluidVolume,
+    defaultFill,
+    density,
     isCustom: definition.isCustom !== undefined ? definition.isCustom : true
   };
   return sanitized;
@@ -437,9 +454,9 @@ function populateModuleForm(definition) {
   setValue('#module-width', definition.size?.x ?? definition.sizeX ?? '');
   setValue('#module-height', definition.size?.y ?? definition.sizeY ?? '');
   setValue('#module-mass', definition.massEmpty ?? definition.mass ?? '');
-  setValue('#module-volume', definition.fluidVolume ?? definition.volume ?? '');
-  setValue('#module-fill', definition.defaultFill ?? definition.fill ?? 0);
-  setValue('#module-density', definition.density ?? 1000);
+  setOptionalFieldValue(form, 'fluidVolume', definition.fluidVolume ?? definition.volume);
+  setOptionalFieldValue(form, 'defaultFill', definition.defaultFill ?? definition.fill);
+  setOptionalFieldValue(form, 'density', definition.density);
 
   const colorInput = form.querySelector('#module-color');
   if (colorInput) {
@@ -470,10 +487,11 @@ function applyModuleDefinitionUpdate(definition) {
     mod.type = definition.type;
     mod.name = definition.name;
     mod.massEmpty = definition.massEmpty;
-    mod.fluidVolume = definition.fluidVolume;
-    mod.density = definition.density;
+    const supportsFluid = moduleSupportsFluid(definition);
+    mod.fluidVolume = supportsFluid ? definition.fluidVolume : null;
+    mod.density = supportsFluid ? definition.density : null;
     mod.size = { ...definition.size };
-    mod.fill = Math.min(100, Math.max(0, mod.fill ?? definition.defaultFill ?? 0));
+    mod.fill = supportsFluid ? Math.min(100, Math.max(0, mod.fill ?? definition.defaultFill ?? 0)) : 0;
     const color = definition.color !== undefined ? definition.color : 0x777777;
     mod.color = color;
     if (mod.mesh && mod.mesh.material) {
@@ -540,6 +558,43 @@ function initOptionalFieldToggles(form) {
       });
     });
   });
+}
+
+function initModuleFluidToggleDependencies() {
+  if (!ui.moduleForm) return;
+  const form = ui.moduleForm;
+  const volumeToggle = form.querySelector('#toggle-module-volume');
+  if (!volumeToggle) return;
+  const dependentSelectors = ['#toggle-module-fill', '#toggle-module-density'];
+  const dependentToggles = dependentSelectors
+    .map((selector) => form.querySelector(selector))
+    .filter((toggle) => toggle);
+  const previousStates = new Map();
+
+  const syncDependents = () => {
+    if (!volumeToggle.checked) {
+      dependentToggles.forEach((toggle) => {
+        previousStates.set(toggle, toggle.checked);
+        toggle.checked = false;
+        toggle.dispatchEvent(new Event('change', { bubbles: true }));
+        toggle.disabled = true;
+      });
+    } else {
+      dependentToggles.forEach((toggle) => {
+        toggle.disabled = false;
+        const previous = previousStates.has(toggle) ? previousStates.get(toggle) : true;
+        toggle.checked = previous;
+        toggle.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    }
+  };
+
+  volumeToggle.addEventListener('change', syncDependents);
+  form.addEventListener('reset', () => {
+    previousStates.clear();
+    window.requestAnimationFrame(syncDependents);
+  });
+  syncDependents();
 }
 
 const state = {
@@ -925,6 +980,8 @@ function initUI() {
   setFormCollapsed(ui.btnAddModule, ui.moduleForm, true);
 
   initOptionalFieldToggles(ui.chassisForm);
+  initOptionalFieldToggles(ui.moduleForm);
+  initModuleFluidToggleDependencies();
 
   const initialChassis = populateChassisOptions();
   if (initialChassis) {
@@ -1120,14 +1177,16 @@ function bindUIEvents() {
   }
 
   ui.detailFill.addEventListener('input', () => {
-    ui.detailFillValue.textContent = `${ui.detailFill.value}%`;
-    if (state.selected) {
-      state.selected.fill = Number(ui.detailFill.value);
-      updateAnalysis();
+    if (!state.selected || !moduleSupportsFluid(state.selected) || ui.detailFill.disabled) {
+      ui.detailFillValue.textContent = '-';
+      return;
     }
+    ui.detailFillValue.textContent = `${ui.detailFill.value}%`;
+    state.selected.fill = Number(ui.detailFill.value);
+    updateAnalysis();
   });
   ui.detailFill.addEventListener('change', () => {
-    if (state.selected) {
+    if (state.selected && moduleSupportsFluid(state.selected) && !ui.detailFill.disabled) {
       pushHistory();
     }
   });
@@ -1286,9 +1345,20 @@ function handleCustomModuleSubmit(event) {
     const sizeY = parseNumberField(data.get('sizeY'), 'Hauteur', { min: 0.1 });
     const sizeZ = parseNumberField(data.get('sizeZ'), 'Longueur', { min: 0.1 });
     const massEmpty = parseNumberField(data.get('massEmpty'), 'Masse à vide', { min: 0 });
-    const fluidVolume = parseNumberField(data.get('fluidVolume'), 'Volume de fluide', { min: 0 });
-    const defaultFill = parseNumberField(data.get('defaultFill'), 'Remplissage par défaut', { min: 0, max: 100 });
-    const density = parseNumberField(data.get('density'), 'Densité', { min: 1 });
+    const fluidVolume = parseOptionalNumberField(data.get('fluidVolume'), 'Volume de fluide', { min: 0 });
+    let defaultFill = parseOptionalNumberField(data.get('defaultFill'), 'Remplissage par défaut', { min: 0, max: 100 });
+    let density = parseOptionalNumberField(data.get('density'), 'Densité', { min: 1 });
+    if (fluidVolume === null) {
+      defaultFill = null;
+      density = null;
+    } else {
+      if (defaultFill !== null) {
+        defaultFill = Math.min(100, Math.max(0, defaultFill));
+      }
+      if (density !== null) {
+        density = Math.max(1, density);
+      }
+    }
     const color = parseColorValue(data.get('color'), 0x2c7ef4);
     const isEdit = form.dataset.mode === 'edit';
     let existing = null;
@@ -1438,16 +1508,21 @@ function addModuleInstance(moduleId) {
   );
   mesh.add(edges);
 
+  const supportsFluid = moduleSupportsFluid(definition);
+  const initialFill = supportsFluid ? Math.min(100, Math.max(0, definition.defaultFill ?? 0)) : 0;
+  const fluidVolume = supportsFluid ? definition.fluidVolume : null;
+  const density = supportsFluid ? definition.density : null;
+
   const instance = {
     id: `module-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     definitionId: moduleId,
     type: definition.type,
     name: definition.name,
     mesh,
-    fill: Math.min(100, Math.max(0, definition.defaultFill ?? 0)),
+    fill: initialFill,
     massEmpty: definition.massEmpty,
-    fluidVolume: definition.fluidVolume,
-    density: definition.density,
+    fluidVolume,
+    density,
     size: { ...definition.size },
     color,
     labelSprite: null
@@ -1491,9 +1566,18 @@ function updateSelectionDetails() {
   }
   ui.detailName.textContent = mod.name;
   ui.detailMass.textContent = `${mod.massEmpty.toFixed(0)} kg`;
-  ui.detailCapacity.textContent = `${mod.fluidVolume.toFixed(0)} L`;
-  ui.detailFill.value = mod.fill;
-  ui.detailFillValue.textContent = `${mod.fill}%`;
+  const hasFluid = moduleSupportsFluid(mod);
+  if (hasFluid) {
+    ui.detailCapacity.textContent = `${mod.fluidVolume.toFixed(0)} L`;
+    ui.detailFill.disabled = false;
+    ui.detailFill.value = mod.fill;
+    ui.detailFillValue.textContent = `${mod.fill}%`;
+  } else {
+    ui.detailCapacity.textContent = '-';
+    ui.detailFill.disabled = true;
+    ui.detailFill.value = 0;
+    ui.detailFillValue.textContent = '-';
+  }
   ui.detailPosX.value = mod.mesh.position.x.toFixed(2);
   ui.detailPosY.value = mod.mesh.position.y.toFixed(2);
   ui.detailPosZ.value = mod.mesh.position.z.toFixed(2);
@@ -1746,9 +1830,18 @@ function removeModule(mod) {
   }
 }
 
+function moduleSupportsFluid(mod) {
+  return mod && mod.fluidVolume !== null && mod.fluidVolume !== undefined;
+}
+
 function massOfModule(mod) {
+  if (!moduleSupportsFluid(mod)) {
+    return mod.massEmpty;
+  }
   const volume_m3 = (mod.fluidVolume / 1000);
-  const fluidMass = volume_m3 * (mod.fill / 100) * mod.density;
+  const density = mod.density ?? 1000;
+  const fillRatio = (mod.fill ?? 0) / 100;
+  const fluidMass = volume_m3 * fillRatio * density;
   return mod.massEmpty + fluidMass;
 }
 
@@ -1891,19 +1984,22 @@ function serializeState() {
     walkwayVisible: state.walkwayVisible,
     walkwayOffsetX: state.walkwayOffsetX,
     walkwayOffsetZ: state.walkwayOffsetZ,
-    modules: state.modules.map((mod) => ({
-      id: mod.definitionId,
-      type: mod.type,
-      name: mod.name,
-      fill: mod.fill,
-      massEmpty: mod.massEmpty,
-      fluidVolume: mod.fluidVolume,
-      density: mod.density,
-      size: { ...mod.size },
-      color: mod.color,
-      position: mod.mesh.position.toArray(),
-      rotationY: mod.mesh.rotation.y
-    }))
+    modules: state.modules.map((mod) => {
+      const supportsFluid = moduleSupportsFluid(mod);
+      return {
+        id: mod.definitionId,
+        type: mod.type,
+        name: mod.name,
+        fill: supportsFluid ? mod.fill : null,
+        massEmpty: mod.massEmpty,
+        fluidVolume: supportsFluid ? mod.fluidVolume : null,
+        density: supportsFluid ? mod.density : null,
+        size: { ...mod.size },
+        color: mod.color,
+        position: mod.mesh.position.toArray(),
+        rotationY: mod.mesh.rotation.y
+      };
+    })
   };
   if (state.chassisData && state.chassisData.isCustom) {
     serialized.chassisDefinition = { ...state.chassisData };
@@ -1982,16 +2078,28 @@ function restoreState(data) {
       new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 })
     );
     mesh.add(edges);
+    const itemHasFluidVolume = Object.prototype.hasOwnProperty.call(item, 'fluidVolume');
+    const itemFluidVolume = itemHasFluidVolume ? item.fluidVolume : definition.fluidVolume;
+    const itemHasDensity = Object.prototype.hasOwnProperty.call(item, 'density');
+    const densitySource = itemHasDensity ? item.density : definition.density;
+    const supportsFluid = itemFluidVolume !== null && itemFluidVolume !== undefined;
+    const itemHasFill = Object.prototype.hasOwnProperty.call(item, 'fill');
+    const fillSource = itemHasFill ? item.fill : definition.defaultFill;
+    const normalizedFill = supportsFluid ? Math.min(100, Math.max(0, fillSource ?? 0)) : 0;
+    const normalizedDensity = supportsFluid
+      ? (densitySource !== null && densitySource !== undefined ? Math.max(1, densitySource) : null)
+      : null;
+
     const instance = {
       id: `module-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       definitionId: item.id,
       type: item.type || definition.type,
       name: item.name || definition.name,
       mesh,
-      fill: Math.min(100, Math.max(0, item.fill ?? definition.defaultFill ?? 0)),
+      fill: normalizedFill,
       massEmpty: item.massEmpty ?? definition.massEmpty,
-      fluidVolume: item.fluidVolume ?? definition.fluidVolume,
-      density: item.density ?? definition.density,
+      fluidVolume: supportsFluid ? itemFluidVolume : null,
+      density: normalizedDensity,
       size: { ...size },
       color: baseColor,
       labelSprite: null
@@ -2076,8 +2184,11 @@ function computeAnalysisForState(data) {
   let totalMass = chassis.mass;
   const cog = new THREE.Vector3(0, chassis.height / 2, 0).multiplyScalar(chassis.mass);
   data.modules.forEach((mod) => {
-    const volume_m3 = mod.fluidVolume / 1000;
-    const mass = mod.massEmpty + volume_m3 * (mod.fill / 100) * mod.density;
+    const hasFluid = moduleSupportsFluid(mod);
+    const volume_m3 = hasFluid ? (mod.fluidVolume / 1000) : 0;
+    const density = hasFluid ? (mod.density ?? 1000) : 0;
+    const fillRatio = hasFluid ? ((mod.fill ?? 0) / 100) : 0;
+    const mass = mod.massEmpty + volume_m3 * fillRatio * density;
     totalMass += mass;
     const pos = new THREE.Vector3().fromArray(mod.position);
     cog.add(pos.multiplyScalar(mass));
