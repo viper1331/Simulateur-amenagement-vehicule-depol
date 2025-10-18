@@ -32,9 +32,99 @@
             <div><span>Masse :</span> <span id="chassis-mass">-</span></div>
             <div><span>Dimensions :</span> <span id="chassis-dims">-</span></div>
           </div>
+          <button id="btn-add-chassis" class="secondary" data-collapsed-label="Ajouter un châssis personnalisé" data-expanded-label="Masquer le formulaire">Ajouter un châssis personnalisé</button>
+          <form id="chassis-form" class="inline-form is-collapsed">
+            <div class="form-row">
+              <label for="chassis-name">Nom</label>
+              <input id="chassis-name" name="name" type="text" required placeholder="Ex. Châssis 20T">
+            </div>
+            <div class="form-row">
+              <label for="chassis-length">Longueur (m)</label>
+              <input id="chassis-length" name="length" type="number" min="1" step="0.01" required>
+            </div>
+            <div class="form-row">
+              <label for="chassis-width">Largeur (m)</label>
+              <input id="chassis-width" name="width" type="number" min="1" step="0.01" required>
+            </div>
+            <div class="form-row">
+              <label for="chassis-height">Hauteur (m)</label>
+              <input id="chassis-height" name="height" type="number" min="0.5" step="0.01" required>
+            </div>
+            <div class="form-row">
+              <label for="chassis-mass-input">Masse à vide (kg)</label>
+              <input id="chassis-mass-input" name="mass" type="number" min="0" step="10" required>
+            </div>
+            <div class="form-row">
+              <label for="chassis-ptac-input">PTAC (kg)</label>
+              <input id="chassis-ptac-input" name="ptac" type="number" min="0" step="10" required>
+            </div>
+            <div class="form-row">
+              <label for="chassis-wheelbase-input">Empattement (m)</label>
+              <input id="chassis-wheelbase-input" name="wheelbase" type="number" min="1" step="0.01" required>
+            </div>
+            <div class="form-row">
+              <label for="chassis-front-axle">Décalage essieu AV (m)</label>
+              <input id="chassis-front-axle" name="frontAxleOffset" type="number" min="0" step="0.01" required>
+            </div>
+            <div class="form-row">
+              <label for="chassis-color">Couleur</label>
+              <input id="chassis-color" name="color" type="color" value="#6b7a8f">
+            </div>
+            <div class="form-actions">
+              <button type="submit">Enregistrer</button>
+              <button type="button" class="ghost" data-close-form>Annuler</button>
+            </div>
+          </form>
         </section>
         <section>
           <h2>Modules</h2>
+          <button id="btn-add-module" class="secondary" data-collapsed-label="Ajouter un module personnalisé" data-expanded-label="Masquer le formulaire">Ajouter un module personnalisé</button>
+          <form id="module-form" class="inline-form is-collapsed">
+            <div class="form-row">
+              <label for="module-name">Nom</label>
+              <input id="module-name" name="name" type="text" required placeholder="Ex. Cuve spéciale">
+            </div>
+            <div class="form-row">
+              <label for="module-type">Type</label>
+              <input id="module-type" name="type" type="text" required value="Custom">
+            </div>
+            <div class="form-row">
+              <label for="module-length">Longueur (m)</label>
+              <input id="module-length" name="sizeZ" type="number" min="0.2" step="0.01" required>
+            </div>
+            <div class="form-row">
+              <label for="module-width">Largeur (m)</label>
+              <input id="module-width" name="sizeX" type="number" min="0.2" step="0.01" required>
+            </div>
+            <div class="form-row">
+              <label for="module-height">Hauteur (m)</label>
+              <input id="module-height" name="sizeY" type="number" min="0.2" step="0.01" required>
+            </div>
+            <div class="form-row">
+              <label for="module-mass">Masse à vide (kg)</label>
+              <input id="module-mass" name="massEmpty" type="number" min="0" step="1" required>
+            </div>
+            <div class="form-row">
+              <label for="module-volume">Volume de fluide (L)</label>
+              <input id="module-volume" name="fluidVolume" type="number" min="0" step="10" required>
+            </div>
+            <div class="form-row">
+              <label for="module-fill">Remplissage par défaut (%)</label>
+              <input id="module-fill" name="defaultFill" type="number" min="0" max="100" step="5" value="0" required>
+            </div>
+            <div class="form-row">
+              <label for="module-density">Densité fluide (kg/m³)</label>
+              <input id="module-density" name="density" type="number" min="1" step="10" value="1000" required>
+            </div>
+            <div class="form-row">
+              <label for="module-color">Couleur</label>
+              <input id="module-color" name="color" type="color" value="#2c7ef4">
+            </div>
+            <div class="form-actions">
+              <button type="submit">Enregistrer</button>
+              <button type="button" class="ghost" data-close-form>Annuler</button>
+            </div>
+          </form>
           <div id="module-buttons"></div>
           <ul id="module-list"></ul>
         </section>
