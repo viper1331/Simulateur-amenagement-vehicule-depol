@@ -1182,6 +1182,7 @@ const state = {
   magnetSnapDistance: DEFAULT_MAGNET_DISTANCE,
   modules: [],
   selected: null,
+  clipboard: null,
   mode: 'translate',
   compareReference: null,
   lastAnalysis: null
@@ -1356,6 +1357,7 @@ const MIN_USABLE_WIDTH = 0.5;
 const MIN_USABLE_LENGTH = 1.0;
 const HANDLE_IDLE_COLOR = 0xff8c42;
 const HANDLE_ACTIVE_COLOR = 0xffd166;
+const CLIPBOARD_OFFSET = 0.2;
 const orbitState = {
   active: false,
   pointer: new THREE.Vector2(),
@@ -2061,6 +2063,8 @@ function initUI() {
   ui.detailPosY = document.getElementById('detail-pos-y');
   ui.detailPosZ = document.getElementById('detail-pos-z');
   ui.detailRotY = document.getElementById('detail-rot-y');
+  ui.btnCopyModule = document.getElementById('btn-copy-module');
+  ui.btnPasteModule = document.getElementById('btn-paste-module');
   ui.analysisMass = document.getElementById('analysis-mass');
   ui.analysisCoG = document.getElementById('analysis-cog');
   ui.analysisFront = document.getElementById('analysis-front');
@@ -2113,6 +2117,7 @@ function initUI() {
   initOptionalFieldToggles(ui.chassisForm);
   initOptionalFieldToggles(ui.moduleForm);
   initModuleFluidToggleDependencies();
+  updateClipboardButtons();
 
   const initialChassis = populateChassisOptions();
   if (initialChassis) {
@@ -2650,6 +2655,20 @@ function bindUIEvents() {
     pushHistory();
   });
 
+  if (ui.btnCopyModule) {
+    ui.btnCopyModule.addEventListener('click', () => {
+      copySelectedModule();
+    });
+  }
+
+  if (ui.btnPasteModule) {
+    ui.btnPasteModule.addEventListener('click', () => {
+      if (pasteModuleFromClipboard()) {
+        ui.btnPasteModule.blur();
+      }
+    });
+  }
+
   document.getElementById('btn-new').addEventListener('click', () => {
     confirmAction('Réinitialisation', 'Confirmer la création d\'une nouvelle configuration ?', () => {
       resetScene();
@@ -3048,6 +3067,7 @@ function updateSelectionDetails() {
     if (ui.detailLibrarySourceRow) ui.detailLibrarySourceRow.classList.add('hidden');
     if (ui.detailLibraryLicenseRow) ui.detailLibraryLicenseRow.classList.add('hidden');
     if (ui.detailLibraryWebsiteRow) ui.detailLibraryWebsiteRow.classList.add('hidden');
+    updateClipboardButtons();
     return;
   }
   ui.detailName.textContent = mod.name;
@@ -3089,6 +3109,8 @@ function updateSelectionDetails() {
       ui.detailLibraryWebsiteRow.classList.add('hidden');
     }
   }
+
+  updateClipboardButtons();
 }
 
 function updateModuleList() {
@@ -3102,6 +3124,140 @@ function updateModuleList() {
     li.addEventListener('click', () => selectModule(mod));
     ui.moduleList.appendChild(li);
   });
+}
+
+function createModuleClipboardPayload(mod) {
+  if (!mod) return null;
+  return {
+    definitionId: mod.definitionId,
+    type: mod.type,
+    name: mod.name,
+    shape: mod.shape,
+    size: { ...mod.size },
+    color: mod.color,
+    massEmpty: mod.massEmpty,
+    fluidVolume: mod.fluidVolume,
+    density: mod.density,
+    containsFluid: mod.containsFluid,
+    fill: mod.fill,
+    libraryId: mod.libraryId,
+    libraryName: mod.libraryName,
+    librarySource: mod.librarySource,
+    libraryLicense: mod.libraryLicense,
+    libraryWebsite: mod.libraryWebsite,
+    isCustom: mod.isCustom,
+    position: mod.mesh.position.toArray(),
+    rotationY: mod.mesh.rotation.y
+  };
+}
+
+function updateClipboardButtons() {
+  if (ui.btnCopyModule) {
+    ui.btnCopyModule.disabled = !state.selected;
+  }
+  if (ui.btnPasteModule) {
+    ui.btnPasteModule.disabled = !state.clipboard;
+  }
+}
+
+function copySelectedModule() {
+  if (!state.selected) {
+    return false;
+  }
+  state.clipboard = createModuleClipboardPayload(state.selected);
+  updateClipboardButtons();
+  return Boolean(state.clipboard);
+}
+
+function pasteModuleFromClipboard() {
+  if (!state.clipboard) {
+    return false;
+  }
+
+  const payload = state.clipboard;
+  if (payload.libraryId) {
+    registerModuleLibraryMeta({
+      id: payload.libraryId,
+      name: payload.libraryName,
+      source: payload.librarySource,
+      license: payload.libraryLicense,
+      website: payload.libraryWebsite
+    });
+  }
+
+  const definition = moduleCatalog.find((m) => m.id === payload.definitionId) || {
+    id: payload.definitionId,
+    type: payload.type,
+    shape: payload.shape,
+    name: payload.name,
+    size: { ...payload.size },
+    massEmpty: payload.massEmpty,
+    fluidVolume: payload.fluidVolume,
+    defaultFill: payload.fill,
+    density: payload.density,
+    containsFluid: payload.containsFluid,
+    color: payload.color,
+    libraryId: payload.libraryId,
+    libraryName: payload.libraryName,
+    librarySource: payload.librarySource,
+    libraryLicense: payload.libraryLicense,
+    libraryWebsite: payload.libraryWebsite,
+    isCustom: payload.isCustom
+  };
+
+  const resolvedShape = normalizeModuleShape(payload.shape || definition.shape);
+  const resolvedSize = payload.size ? { ...payload.size } : { ...definition.size };
+  if (!resolvedSize || !Number.isFinite(resolvedSize.x) || !Number.isFinite(resolvedSize.y) || !Number.isFinite(resolvedSize.z)) {
+    return false;
+  }
+
+  const { mesh } = createModuleMesh({
+    ...definition,
+    shape: resolvedShape,
+    size: resolvedSize,
+    color: payload.color !== undefined ? payload.color : definition.color
+  });
+
+  const instancePosition = payload.position ? [...payload.position] : [0, resolvedSize.y / 2, 0];
+  instancePosition[0] += CLIPBOARD_OFFSET;
+  instancePosition[2] += CLIPBOARD_OFFSET;
+
+  mesh.position.fromArray(instancePosition);
+  mesh.rotation.y = payload.rotationY ?? 0;
+
+  const containsFluid = Boolean(payload.containsFluid);
+  const instance = {
+    id: `module-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    definitionId: definition.id || payload.definitionId,
+    type: payload.type || definition.type,
+    name: payload.name || definition.name,
+    mesh,
+    shape: resolvedShape,
+    fill: containsFluid ? Math.min(100, Math.max(0, payload.fill ?? definition.defaultFill ?? 0)) : 0,
+    massEmpty: payload.massEmpty ?? definition.massEmpty,
+    fluidVolume: containsFluid ? (payload.fluidVolume ?? definition.fluidVolume ?? 0) : 0,
+    density: containsFluid ? (payload.density ?? definition.density ?? 0) : 0,
+    containsFluid,
+    size: { ...resolvedSize },
+    color: payload.color !== undefined ? payload.color : (definition.color !== undefined ? definition.color : 0x777777),
+    isCustom: payload.isCustom !== undefined ? payload.isCustom : Boolean(definition.isCustom),
+    libraryId: payload.libraryId ?? definition.libraryId,
+    libraryName: payload.libraryName ?? definition.libraryName,
+    librarySource: payload.librarySource ?? definition.librarySource,
+    libraryLicense: payload.libraryLicense ?? definition.libraryLicense,
+    libraryWebsite: payload.libraryWebsite ?? definition.libraryWebsite,
+    labelSprite: null
+  };
+
+  scene.add(mesh);
+  state.modules.push(instance);
+  clampToBounds(mesh.position, instance);
+  syncModuleState(instance);
+  updateModuleLabel(instance);
+  selectModule(instance);
+  updateAnalysis();
+  pushHistory();
+  return true;
 }
 
 function onPointerDown(event) {
@@ -3542,6 +3698,12 @@ function separateOverlappingModules() {
   updateAnalysis();
 }
 
+function isEventFromEditableField(target) {
+  if (!target) return false;
+  const tagName = target.tagName ? target.tagName.toLowerCase() : '';
+  return tagName === 'input' || tagName === 'textarea' || tagName === 'select' || Boolean(target.isContentEditable);
+}
+
 function onKeyDown(event) {
   if (event.code === 'Delete' && state.selected) {
     removeModule(state.selected);
@@ -3554,6 +3716,18 @@ function onKeyDown(event) {
   if (event.code === 'KeyR') {
     state.mode = 'rotate';
     ui.hud.innerHTML = 'Mode: Rotation';
+  }
+  if (event.ctrlKey && event.code === 'KeyC') {
+    if (isEventFromEditableField(event.target)) return;
+    if (copySelectedModule()) {
+      event.preventDefault();
+    }
+  }
+  if (event.ctrlKey && event.code === 'KeyV') {
+    if (isEventFromEditableField(event.target)) return;
+    if (pasteModuleFromClipboard()) {
+      event.preventDefault();
+    }
   }
   if (event.ctrlKey && event.code === 'KeyZ') {
     event.preventDefault();
