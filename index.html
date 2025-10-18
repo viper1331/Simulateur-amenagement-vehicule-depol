@@ -308,16 +308,22 @@
               <input id="module-mass" name="massEmpty" type="number" min="0" step="1" required>
             </div>
             <div class="form-row">
+              <label class="checkbox" for="module-has-fluid">
+                <input id="module-has-fluid" name="containsFluid" type="checkbox">
+                <span>Ce module contient un fluide (cuve, pompe, etc.)</span>
+              </label>
+            </div>
+            <div class="form-row optional is-disabled" data-fluid-row>
               <label for="module-volume">Volume de fluide (L)</label>
-              <input id="module-volume" name="fluidVolume" type="number" min="0" step="10" required>
+              <input id="module-volume" name="fluidVolume" type="number" min="0" step="10" required disabled data-fluid-input>
             </div>
-            <div class="form-row">
+            <div class="form-row optional is-disabled" data-fluid-row>
               <label for="module-fill">Remplissage par défaut (%)</label>
-              <input id="module-fill" name="defaultFill" type="number" min="0" max="100" step="5" value="0" required>
+              <input id="module-fill" name="defaultFill" type="number" min="0" max="100" step="5" value="0" required disabled data-fluid-input>
             </div>
-            <div class="form-row">
+            <div class="form-row optional is-disabled" data-fluid-row>
               <label for="module-density">Densité fluide (kg/m³)</label>
-              <input id="module-density" name="density" type="number" min="1" step="10" value="1000" required>
+              <input id="module-density" name="density" type="number" min="1" step="10" value="1000" required disabled data-fluid-input>
             </div>
             <div class="form-row">
               <label for="module-color">Couleur</label>

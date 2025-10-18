@@ -114,7 +114,8 @@ const moduleCatalog = [
     massEmpty: 680,
     fluidVolume: 5000,
     defaultFill: 60,
-    density: 1000
+    density: 1000,
+    containsFluid: true
   },
   {
     id: 'tank-compact',
@@ -125,7 +126,8 @@ const moduleCatalog = [
     massEmpty: 520,
     fluidVolume: 3000,
     defaultFill: 50,
-    density: 1000
+    density: 1000,
+    containsFluid: true
   },
   {
     id: 'pump-high',
@@ -136,7 +138,8 @@ const moduleCatalog = [
     massEmpty: 320,
     fluidVolume: 40,
     defaultFill: 0,
-    density: 900
+    density: 900,
+    containsFluid: true
   },
   {
     id: 'hosereel-duo',
@@ -147,7 +150,8 @@ const moduleCatalog = [
     massEmpty: 210,
     fluidVolume: 120,
     defaultFill: 20,
-    density: 950
+    density: 950,
+    containsFluid: true
   },
   {
     id: 'cabinet-large',
@@ -158,7 +162,8 @@ const moduleCatalog = [
     massEmpty: 180,
     fluidVolume: 0,
     defaultFill: 0,
-    density: 1
+    density: 1,
+    containsFluid: false
   },
   {
     id: 'cabinet-ops',
@@ -169,7 +174,8 @@ const moduleCatalog = [
     massEmpty: 140,
     fluidVolume: 0,
     defaultFill: 0,
-    density: 1
+    density: 1,
+    containsFluid: false
   }
 ];
 
@@ -281,6 +287,13 @@ function sanitizeModuleDefinition(definition) {
   const sizeX = Number(sizeSource.x ?? sizeSource.sizeX ?? sizeSource.width ?? 0.2) || 0.2;
   const sizeY = Number(sizeSource.y ?? sizeSource.sizeY ?? sizeSource.height ?? 0.2) || 0.2;
   const sizeZ = Number(sizeSource.z ?? sizeSource.sizeZ ?? sizeSource.length ?? 0.2) || 0.2;
+  const fluidVolumeRaw = Math.max(0, Number(definition.fluidVolume ?? definition.volume ?? 0) || 0);
+  const containsFluid = definition.containsFluid !== undefined
+    ? Boolean(definition.containsFluid)
+    : fluidVolumeRaw > 0;
+  const defaultFillRaw = Number(definition.defaultFill ?? definition.fill ?? 0) || 0;
+  const densityCandidate = Number(definition.density ?? 1000);
+  const densityRaw = Number.isFinite(densityCandidate) ? densityCandidate : 1000;
   const sanitized = {
     id: definition.id || `custom-module-${Date.now()}`,
     type: definition.type || 'Custom',
@@ -288,9 +301,10 @@ function sanitizeModuleDefinition(definition) {
     size: { x: sizeX, y: sizeY, z: sizeZ },
     color: definition.color !== undefined ? definition.color : 0x2c7ef4,
     massEmpty: Number(definition.massEmpty ?? definition.mass ?? 0) || 0,
-    fluidVolume: Number(definition.fluidVolume ?? definition.volume ?? 0) || 0,
-    defaultFill: Math.min(100, Math.max(0, Number(definition.defaultFill ?? definition.fill ?? 0) || 0)),
-    density: Number(definition.density ?? 1000) || 1000,
+    fluidVolume: containsFluid ? fluidVolumeRaw : 0,
+    defaultFill: containsFluid ? Math.min(100, Math.max(0, defaultFillRaw)) : 0,
+    density: containsFluid ? Math.max(1, densityRaw) : Math.max(0, densityRaw),
+    containsFluid,
     isCustom: definition.isCustom !== undefined ? definition.isCustom : true
   };
   return sanitized;
@@ -411,6 +425,18 @@ function startChassisEdit(chassis) {
   setFormCollapsed(ui.btnAddChassis, ui.chassisForm, false);
 }
 
+function updateModuleFormFluidState(enabled) {
+  if (!ui.moduleForm) return;
+  const rows = ui.moduleForm.querySelectorAll('[data-fluid-row]');
+  rows.forEach((row) => {
+    row.classList.toggle('is-disabled', !enabled);
+  });
+  const inputs = ui.moduleForm.querySelectorAll('[data-fluid-input]');
+  inputs.forEach((input) => {
+    input.disabled = !enabled;
+  });
+}
+
 function resetModuleFormState() {
   if (!ui.moduleForm) return;
   ui.moduleForm.dataset.mode = 'create';
@@ -419,6 +445,10 @@ function resetModuleFormState() {
   if (submitButton) {
     submitButton.textContent = 'Enregistrer';
   }
+  if (ui.moduleFluidToggle) {
+    ui.moduleFluidToggle.checked = false;
+  }
+  updateModuleFormFluidState(false);
 }
 
 function populateModuleForm(definition) {
@@ -445,6 +475,14 @@ function populateModuleForm(definition) {
   if (colorInput) {
     colorInput.value = toHexColor(definition.color ?? 0x2c7ef4, '#2c7ef4');
   }
+
+  const fluidToggle = form.querySelector('#module-has-fluid');
+  if (fluidToggle) {
+    fluidToggle.checked = Boolean(definition.containsFluid);
+    updateModuleFormFluidState(fluidToggle.checked);
+  } else {
+    updateModuleFormFluidState(false);
+  }
 }
 
 function startModuleEdit(definition) {
@@ -470,10 +508,11 @@ function applyModuleDefinitionUpdate(definition) {
     mod.type = definition.type;
     mod.name = definition.name;
     mod.massEmpty = definition.massEmpty;
-    mod.fluidVolume = definition.fluidVolume;
-    mod.density = definition.density;
+    mod.containsFluid = Boolean(definition.containsFluid);
+    mod.fluidVolume = mod.containsFluid ? definition.fluidVolume : 0;
+    mod.density = mod.containsFluid ? definition.density : 0;
     mod.size = { ...definition.size };
-    mod.fill = Math.min(100, Math.max(0, mod.fill ?? definition.defaultFill ?? 0));
+    mod.fill = mod.containsFluid ? Math.min(100, Math.max(0, mod.fill ?? definition.defaultFill ?? 0)) : 0;
     const color = definition.color !== undefined ? definition.color : 0x777777;
     mod.color = color;
     if (mod.mesh && mod.mesh.material) {
@@ -940,6 +979,7 @@ function initUI() {
   ui.chassisForm = document.getElementById('chassis-form');
   ui.btnAddModule = document.getElementById('btn-add-module');
   ui.moduleForm = document.getElementById('module-form');
+  ui.moduleFluidToggle = document.getElementById('module-has-fluid');
 
   resetChassisFormState();
   resetModuleFormState();
@@ -1072,6 +1112,12 @@ function bindUIEvents() {
     ui.moduleForm.addEventListener('submit', handleCustomModuleSubmit);
   }
 
+  if (ui.moduleFluidToggle) {
+    ui.moduleFluidToggle.addEventListener('change', () => {
+      updateModuleFormFluidState(ui.moduleFluidToggle.checked);
+    });
+  }
+
   window.addEventListener('resize', onResize);
   renderer.domElement.addEventListener('pointerdown', onPointerDown);
   renderer.domElement.addEventListener('pointermove', onPointerMove);
@@ -1143,14 +1189,16 @@ function bindUIEvents() {
   }
 
   ui.detailFill.addEventListener('input', () => {
-    ui.detailFillValue.textContent = `${ui.detailFill.value}%`;
-    if (state.selected) {
-      state.selected.fill = Number(ui.detailFill.value);
-      updateAnalysis();
+    if (!state.selected || !state.selected.containsFluid) {
+      ui.detailFillValue.textContent = '-';
+      return;
     }
+    ui.detailFillValue.textContent = `${ui.detailFill.value}%`;
+    state.selected.fill = Number(ui.detailFill.value);
+    updateAnalysis();
   });
   ui.detailFill.addEventListener('change', () => {
-    if (state.selected) {
+    if (state.selected && state.selected.containsFluid) {
       pushHistory();
     }
   });
@@ -1312,9 +1360,16 @@ function handleCustomModuleSubmit(event) {
     const sizeY = parseNumberField(data.get('sizeY'), 'Hauteur', { min: 0.1 });
     const sizeZ = parseNumberField(data.get('sizeZ'), 'Longueur', { min: 0.1 });
     const massEmpty = parseNumberField(data.get('massEmpty'), 'Masse à vide', { min: 0 });
-    const fluidVolume = parseNumberField(data.get('fluidVolume'), 'Volume de fluide', { min: 0 });
-    const defaultFill = parseNumberField(data.get('defaultFill'), 'Remplissage par défaut', { min: 0, max: 100 });
-    const density = parseNumberField(data.get('density'), 'Densité', { min: 1 });
+    const containsFluid = data.get('containsFluid') === 'on';
+    const fluidVolume = containsFluid
+      ? parseNumberField(data.get('fluidVolume'), 'Volume de fluide', { min: 0 })
+      : 0;
+    const defaultFill = containsFluid
+      ? parseNumberField(data.get('defaultFill'), 'Remplissage par défaut', { min: 0, max: 100 })
+      : 0;
+    const density = containsFluid
+      ? parseNumberField(data.get('density'), 'Densité', { min: 1 })
+      : 0;
     const color = parseColorValue(data.get('color'), 0x2c7ef4);
     const isEdit = form.dataset.mode === 'edit';
     let existing = null;
@@ -1335,6 +1390,7 @@ function handleCustomModuleSubmit(event) {
       fluidVolume,
       defaultFill,
       density,
+      containsFluid,
       color,
       isCustom: isEdit && existing ? (existing.isCustom !== undefined ? existing.isCustom : false) : true
     });
@@ -1464,16 +1520,19 @@ function addModuleInstance(moduleId) {
   );
   mesh.add(edges);
 
+  const containsFluid = Boolean(definition.containsFluid);
+  const initialFill = containsFluid ? Math.min(100, Math.max(0, definition.defaultFill ?? 0)) : 0;
   const instance = {
     id: `module-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
     definitionId: moduleId,
     type: definition.type,
     name: definition.name,
     mesh,
-    fill: Math.min(100, Math.max(0, definition.defaultFill ?? 0)),
+    fill: initialFill,
     massEmpty: definition.massEmpty,
-    fluidVolume: definition.fluidVolume,
-    density: definition.density,
+    fluidVolume: containsFluid ? definition.fluidVolume : 0,
+    density: containsFluid ? definition.density : 0,
+    containsFluid,
     size: { ...definition.size },
     color,
     labelSprite: null
@@ -1509,7 +1568,8 @@ function updateSelectionDetails() {
     ui.detailMass.textContent = '-';
     ui.detailCapacity.textContent = '-';
     ui.detailFill.value = 0;
-    ui.detailFillValue.textContent = '0%';
+    ui.detailFill.disabled = true;
+    ui.detailFillValue.textContent = '-';
     ui.detailPosX.value = '';
     ui.detailPosY.value = '';
     ui.detailPosZ.value = '';
@@ -1518,9 +1578,17 @@ function updateSelectionDetails() {
   }
   ui.detailName.textContent = mod.name;
   ui.detailMass.textContent = `${mod.massEmpty.toFixed(0)} kg`;
-  ui.detailCapacity.textContent = `${mod.fluidVolume.toFixed(0)} L`;
-  ui.detailFill.value = mod.fill;
-  ui.detailFillValue.textContent = `${mod.fill}%`;
+  if (mod.containsFluid) {
+    ui.detailCapacity.textContent = `${mod.fluidVolume.toFixed(0)} L`;
+    ui.detailFill.disabled = false;
+    ui.detailFill.value = mod.fill;
+    ui.detailFillValue.textContent = `${mod.fill}%`;
+  } else {
+    ui.detailCapacity.textContent = '-';
+    ui.detailFill.disabled = true;
+    ui.detailFill.value = 0;
+    ui.detailFillValue.textContent = '-';
+  }
   ui.detailPosX.value = mod.mesh.position.x.toFixed(2);
   ui.detailPosY.value = mod.mesh.position.y.toFixed(2);
   ui.detailPosZ.value = mod.mesh.position.z.toFixed(2);
@@ -1849,6 +1917,9 @@ function removeModule(mod) {
 }
 
 function massOfModule(mod) {
+  if (!mod.containsFluid) {
+    return mod.massEmpty;
+  }
   const volume_m3 = (mod.fluidVolume / 1000);
   const fluidMass = volume_m3 * (mod.fill / 100) * mod.density;
   return mod.massEmpty + fluidMass;
@@ -1993,6 +2064,7 @@ function serializeState() {
       massEmpty: mod.massEmpty,
       fluidVolume: mod.fluidVolume,
       density: mod.density,
+      containsFluid: mod.containsFluid,
       size: { ...mod.size },
       color: mod.color,
       position: mod.mesh.position.toArray(),
@@ -2053,6 +2125,7 @@ function restoreState(data) {
         fluidVolume: item.fluidVolume,
         defaultFill: item.fill,
         density: item.density,
+        containsFluid: item.containsFluid,
         color: item.color,
         isCustom: true
       });
@@ -2077,16 +2150,23 @@ function restoreState(data) {
       new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 })
     );
     mesh.add(edges);
+    const containsFluid = item.containsFluid !== undefined ? item.containsFluid : definition.containsFluid;
+    const instanceFill = containsFluid
+      ? Math.min(100, Math.max(0, item.fill ?? definition.defaultFill ?? 0))
+      : 0;
+    const instanceFluidVolume = containsFluid ? (item.fluidVolume ?? definition.fluidVolume) : 0;
+    const instanceDensity = containsFluid ? (item.density ?? definition.density) : 0;
     const instance = {
       id: `module-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       definitionId: item.id,
       type: item.type || definition.type,
       name: item.name || definition.name,
       mesh,
-      fill: Math.min(100, Math.max(0, item.fill ?? definition.defaultFill ?? 0)),
+      fill: instanceFill,
       massEmpty: item.massEmpty ?? definition.massEmpty,
-      fluidVolume: item.fluidVolume ?? definition.fluidVolume,
-      density: item.density ?? definition.density,
+      fluidVolume: instanceFluidVolume,
+      density: instanceDensity,
+      containsFluid: Boolean(containsFluid),
       size: { ...size },
       color: baseColor,
       labelSprite: null
@@ -2172,8 +2252,11 @@ function computeAnalysisForState(data) {
   let totalMass = chassis.mass;
   const cog = new THREE.Vector3(0, chassis.height / 2, 0).multiplyScalar(chassis.mass);
   data.modules.forEach((mod) => {
-    const volume_m3 = mod.fluidVolume / 1000;
-    const mass = mod.massEmpty + volume_m3 * (mod.fill / 100) * mod.density;
+    const containsFluid = mod.containsFluid !== undefined ? mod.containsFluid : (mod.fluidVolume ?? 0) > 0;
+    const volume_m3 = containsFluid ? (mod.fluidVolume ?? 0) / 1000 : 0;
+    const fillRatio = containsFluid ? (mod.fill ?? 0) / 100 : 0;
+    const density = containsFluid ? (mod.density ?? 0) : 0;
+    const mass = mod.massEmpty + volume_m3 * fillRatio * density;
     totalMass += mass;
     const pos = new THREE.Vector3().fromArray(mod.position);
     cog.add(pos.multiplyScalar(mass));
