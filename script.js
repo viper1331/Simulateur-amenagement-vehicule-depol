@@ -467,9 +467,9 @@ function populateModuleForm(definition) {
   setValue('#module-width', definition.size?.x ?? definition.sizeX ?? '');
   setValue('#module-height', definition.size?.y ?? definition.sizeY ?? '');
   setValue('#module-mass', definition.massEmpty ?? definition.mass ?? '');
-  setValue('#module-volume', definition.fluidVolume ?? definition.volume ?? '');
-  setValue('#module-fill', definition.defaultFill ?? definition.fill ?? 0);
-  setValue('#module-density', definition.density ?? 1000);
+  setOptionalFieldValue(form, 'fluidVolume', definition.fluidVolume ?? definition.volume);
+  setOptionalFieldValue(form, 'defaultFill', definition.defaultFill ?? definition.fill);
+  setOptionalFieldValue(form, 'density', definition.density);
 
   const colorInput = form.querySelector('#module-color');
   if (colorInput) {
@@ -583,6 +583,43 @@ function initOptionalFieldToggles(form) {
       });
     });
   });
+}
+
+function initModuleFluidToggleDependencies() {
+  if (!ui.moduleForm) return;
+  const form = ui.moduleForm;
+  const volumeToggle = form.querySelector('#toggle-module-volume');
+  if (!volumeToggle) return;
+  const dependentSelectors = ['#toggle-module-fill', '#toggle-module-density'];
+  const dependentToggles = dependentSelectors
+    .map((selector) => form.querySelector(selector))
+    .filter((toggle) => toggle);
+  const previousStates = new Map();
+
+  const syncDependents = () => {
+    if (!volumeToggle.checked) {
+      dependentToggles.forEach((toggle) => {
+        previousStates.set(toggle, toggle.checked);
+        toggle.checked = false;
+        toggle.dispatchEvent(new Event('change', { bubbles: true }));
+        toggle.disabled = true;
+      });
+    } else {
+      dependentToggles.forEach((toggle) => {
+        toggle.disabled = false;
+        const previous = previousStates.has(toggle) ? previousStates.get(toggle) : true;
+        toggle.checked = previous;
+        toggle.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    }
+  };
+
+  volumeToggle.addEventListener('change', syncDependents);
+  form.addEventListener('reset', () => {
+    previousStates.clear();
+    window.requestAnimationFrame(syncDependents);
+  });
+  syncDependents();
 }
 
 const state = {
@@ -988,6 +1025,8 @@ function initUI() {
   setFormCollapsed(ui.btnAddModule, ui.moduleForm, true);
 
   initOptionalFieldToggles(ui.chassisForm);
+  initOptionalFieldToggles(ui.moduleForm);
+  initModuleFluidToggleDependencies();
 
   const initialChassis = populateChassisOptions();
   if (initialChassis) {
@@ -1916,12 +1955,18 @@ function removeModule(mod) {
   }
 }
 
+function moduleSupportsFluid(mod) {
+  return mod && mod.fluidVolume !== null && mod.fluidVolume !== undefined;
+}
+
 function massOfModule(mod) {
   if (!mod.containsFluid) {
     return mod.massEmpty;
   }
   const volume_m3 = (mod.fluidVolume / 1000);
-  const fluidMass = volume_m3 * (mod.fill / 100) * mod.density;
+  const density = mod.density ?? 1000;
+  const fillRatio = (mod.fill ?? 0) / 100;
+  const fluidMass = volume_m3 * fillRatio * density;
   return mod.massEmpty + fluidMass;
 }
 
