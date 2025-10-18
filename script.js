@@ -2005,6 +2005,9 @@ function createWalkwayMesh(width, length, visible) {
   mesh.position.y = WALKWAY_THICKNESS / 2;
   mesh.visible = visible;
   mesh.name = 'walkway';
+  // Le couloir ne doit pas intercepter les clics afin de faciliter la
+  // sélection des modules situés en dessous.
+  mesh.raycast = () => {};
   return mesh;
 }
 
