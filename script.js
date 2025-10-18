@@ -1,7 +1,9 @@
 import * as THREE from './libs/three.module.js';
 
 const mmToM = (value) => (Number.isFinite(value) ? value / 1000 : null);
-const snapValue = (value, step = 0.01) => Math.round(value / step) * step;
+const mToMm = (value) => (Number.isFinite(value) ? value * 1000 : null);
+const DEFAULT_SNAP_STEP = 0.001;
+const snapValue = (value, step = DEFAULT_SNAP_STEP) => Math.round(value / step) * step;
 const degToRad = (deg) => deg * Math.PI / 180;
 const radToDeg = (rad) => rad * 180 / Math.PI;
 
@@ -267,6 +269,11 @@ function parseNumberField(value, label, { min = -Infinity, max = Infinity } = {}
   return numberValue;
 }
 
+function parseMillimeterField(value, label, { min = -Infinity, max = Infinity } = {}) {
+  const mmValue = parseNumberField(value, label, { min, max });
+  return mmToM(mmValue);
+}
+
 function parseOptionalNumberField(value, label, options) {
   if (value === undefined || value === null || value === '') {
     return null;
@@ -297,6 +304,31 @@ function toHexColor(value, fallback) {
   }
   const clamped = Math.max(0, Math.min(0xffffff, Number(value)));
   return `#${clamped.toString(16).padStart(6, '0')}`;
+}
+
+function formatMillimeters(value) {
+  if (!Number.isFinite(value)) {
+    return '—';
+  }
+  const millimeters = mToMm(value);
+  if (millimeters === null) {
+    return '—';
+  }
+  return `${millimeters.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} mm`;
+}
+
+function formatMillimeterInput(value) {
+  if (!Number.isFinite(value)) {
+    return '';
+  }
+  const millimeters = mToMm(value);
+  if (millimeters === null) {
+    return '';
+  }
+  if (Number.isInteger(millimeters)) {
+    return millimeters.toString();
+  }
+  return millimeters.toFixed(3).replace(/\.?(?:0+)$/, '');
 }
 
 function setOptionalFieldValue(form, fieldName, value) {
@@ -642,12 +674,21 @@ function populateModuleForm(definition) {
     }
   };
 
+  const setMillimeterField = (selector, value) => {
+    const input = form.querySelector(selector);
+    if (!input) return;
+    const numericValue = Number(value);
+    input.value = Number.isFinite(numericValue)
+      ? formatMillimeterInput(numericValue)
+      : '';
+  };
+
   setValue('#module-name', definition.name ?? '');
   setValue('#module-type', definition.type ?? '');
   setValue('#module-shape', normalizeModuleShape(definition.shape));
-  setValue('#module-length', definition.size?.z ?? definition.sizeZ ?? '');
-  setValue('#module-width', definition.size?.x ?? definition.sizeX ?? '');
-  setValue('#module-height', definition.size?.y ?? definition.sizeY ?? '');
+  setMillimeterField('#module-length', definition.size?.z ?? definition.sizeZ);
+  setMillimeterField('#module-width', definition.size?.x ?? definition.sizeX);
+  setMillimeterField('#module-height', definition.size?.y ?? definition.sizeY);
   setValue('#module-mass', definition.massEmpty ?? definition.mass ?? '');
   setOptionalFieldValue(form, 'fluidVolume', definition.fluidVolume ?? definition.volume);
   setOptionalFieldValue(form, 'defaultFill', definition.defaultFill ?? definition.fill);
@@ -843,7 +884,7 @@ function formatModuleDimensions(size) {
   if (!size || !Number.isFinite(size.x) || !Number.isFinite(size.y) || !Number.isFinite(size.z)) {
     return 'Dimensions inconnues';
   }
-  return `${size.x.toFixed(2)} m × ${size.y.toFixed(2)} m × ${size.z.toFixed(2)} m`;
+  return `${formatMillimeters(size.x)} × ${formatMillimeters(size.y)} × ${formatMillimeters(size.z)}`;
 }
 
 function formatModuleShape(shape) {
@@ -2210,9 +2251,9 @@ function handleCustomModuleSubmit(event) {
     }
     const type = (data.get('type') || '').toString().trim() || 'Custom';
     const shape = normalizeModuleShape(data.get('shape') || 'box');
-    const sizeX = parseNumberField(data.get('sizeX'), 'Largeur', { min: 0.1 });
-    const sizeY = parseNumberField(data.get('sizeY'), 'Hauteur', { min: 0.1 });
-    const sizeZ = parseNumberField(data.get('sizeZ'), 'Longueur', { min: 0.1 });
+    const sizeX = parseMillimeterField(data.get('sizeX'), 'Largeur', { min: 200 });
+    const sizeY = parseMillimeterField(data.get('sizeY'), 'Hauteur', { min: 200 });
+    const sizeZ = parseMillimeterField(data.get('sizeZ'), 'Longueur', { min: 200 });
     const massEmpty = parseNumberField(data.get('massEmpty'), 'Masse à vide', { min: 0 });
     const containsFluid = data.get('containsFluid') === 'on';
     const fluidVolume = containsFluid
@@ -2462,9 +2503,9 @@ function updateSelectionDetails() {
     ui.detailFill.value = 0;
     ui.detailFillValue.textContent = '-';
   }
-  ui.detailPosX.value = mod.mesh.position.x.toFixed(2);
-  ui.detailPosY.value = mod.mesh.position.y.toFixed(2);
-  ui.detailPosZ.value = mod.mesh.position.z.toFixed(2);
+  ui.detailPosX.value = mod.mesh.position.x.toFixed(3);
+  ui.detailPosY.value = mod.mesh.position.y.toFixed(3);
+  ui.detailPosZ.value = mod.mesh.position.z.toFixed(3);
   ui.detailRotY.value = Math.round(radToDeg(mod.mesh.rotation.y));
 }
 
@@ -2632,7 +2673,7 @@ function updateHud(event) {
   if (!point) return;
   const modeLabel = state.mode === 'translate' ? 'Translation' : 'Rotation';
   const hint = state.mode === 'translate' ? '<span class="hint">Maintenez Shift pour ajuster la hauteur</span>' : '';
-  ui.hud.innerHTML = `Mode: ${modeLabel}<span>X: ${point.x.toFixed(2)} m</span><span>Y: ${state.selected ? state.selected.mesh.position.y.toFixed(2) : point.y.toFixed(2)} m</span><span>Z: ${point.z.toFixed(2)} m</span>${hint}`;
+  ui.hud.innerHTML = `Mode: ${modeLabel}<span>X: ${point.x.toFixed(3)} m</span><span>Y: ${state.selected ? state.selected.mesh.position.y.toFixed(3) : point.y.toFixed(3)} m</span><span>Z: ${point.z.toFixed(3)} m</span>${hint}`;
 }
 
 function getPlaneIntersection(event, plane) {
