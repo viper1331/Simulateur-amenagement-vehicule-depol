@@ -1,0 +1,21 @@
+{
+  "name": "simulateur-depollution",
+  "version": "1.0.0",
+  "description": "Simulateur 3D temps réel d'aménagement de véhicule de dépollution aéronautique",
+  "main": "main.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder -c builder-config.json",
+    "lint": "echo 'No lint step configured'"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "electron": "^28.2.4",
+    "electron-builder": "^24.13.3"
+  }
+}
