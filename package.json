@@ -15,6 +15,8 @@
     "three": "^0.160.0"
   },
   "devDependencies": {
+    "@electron/get": "file:vendor/@electron/get",
+    "@electron/asar": "file:vendor/@electron/asar",
     "electron": "^30.0.9",
     "electron-builder": "^26.0.12"
   },
