@@ -1704,6 +1704,8 @@ function initUI() {
   ui.chassisDims = document.getElementById('chassis-dims');
   ui.moduleButtons = document.getElementById('module-buttons');
   ui.moduleList = document.getElementById('module-list');
+  ui.modulesSolidToggle = document.getElementById('modules-solid-toggle');
+  ui.modulesMagnetToggle = document.getElementById('modules-magnet-toggle');
   ui.walkwayRange = document.getElementById('walkway-width');
   ui.walkwayValue = document.getElementById('walkway-width-value');
   ui.walkwayOffsetXRange = document.getElementById('walkway-offset-x');
@@ -1751,6 +1753,13 @@ function initUI() {
   ui.filterShowUsable = document.getElementById('filter-show-usable');
   ui.filterShowUsableBoundaries = document.getElementById('filter-show-usable-boundaries');
   ui.filterShowLabels = document.getElementById('filter-show-labels');
+
+  if (ui.modulesSolidToggle) {
+    state.modulesSolid = ui.modulesSolidToggle.checked;
+  }
+  if (ui.modulesMagnetToggle) {
+    state.magnetismEnabled = ui.modulesMagnetToggle.checked;
+  }
 
   if (ui.filterShowChassis) ui.filterShowChassis.checked = state.showChassis;
   if (ui.filterShowGrid) ui.filterShowGrid.checked = state.showGrid;
@@ -2000,6 +2009,23 @@ function bindUIEvents() {
   if (ui.moduleFluidToggle) {
     ui.moduleFluidToggle.addEventListener('change', () => {
       updateModuleFormFluidState(ui.moduleFluidToggle.checked);
+    });
+  }
+
+  if (ui.modulesSolidToggle) {
+    ui.modulesSolidToggle.addEventListener('change', () => {
+      state.modulesSolid = ui.modulesSolidToggle.checked;
+      if (state.modulesSolid) {
+        separateOverlappingModules();
+      }
+      pushHistory();
+    });
+  }
+
+  if (ui.modulesMagnetToggle) {
+    ui.modulesMagnetToggle.addEventListener('change', () => {
+      state.magnetismEnabled = ui.modulesMagnetToggle.checked;
+      pushHistory();
     });
   }
 
@@ -3241,6 +3267,11 @@ function restoreState(data) {
   ui.walkwayToggle.checked = state.walkwayVisible;
   updateWalkway();
   walkwayMesh.visible = state.walkwayVisible;
+
+  state.modulesSolid = data.modulesSolid !== undefined ? Boolean(data.modulesSolid) : state.modulesSolid;
+  state.magnetismEnabled = data.magnetismEnabled !== undefined ? Boolean(data.magnetismEnabled) : state.magnetismEnabled;
+  if (ui.modulesSolidToggle) ui.modulesSolidToggle.checked = state.modulesSolid;
+  if (ui.modulesMagnetToggle) ui.modulesMagnetToggle.checked = state.magnetismEnabled;
 
   state.showChassis = data.showChassis !== undefined ? data.showChassis : true;
   state.showGrid = data.showGrid !== undefined ? data.showGrid : true;
