@@ -617,8 +617,9 @@ function getPhysicalMaterial(color, profileKey = 'paintedMetal', overrides = {})
 
 function registerLineMaterial(material) {
   lineMaterials.add(material);
+  const { pixelWidth, pixelHeight } = getViewportPixelSize();
   material.resolution = material.resolution || new THREE.Vector2();
-  material.resolution.set(getViewportWidth(), getViewportHeight());
+  material.resolution.set(pixelWidth, pixelHeight);
 }
 
 function createEdgeLines(geometry, color = 0x0f1924, linewidth = 1.4) {
@@ -1793,6 +1794,70 @@ const DEFAULT_ORBIT_TARGET_Y = 1.2;
 
 let scene, camera, renderer, grid, hemiLight, keyLight, fillLight, floorMesh;
 let composer, renderPass, ssaoPass, smaaPass, postProcessingEnabled = false;
+
+function getViewportPixelSize() {
+  const width = getViewportWidth();
+  const height = getViewportHeight();
+  const pixelRatio = renderer ? renderer.getPixelRatio() : (window.devicePixelRatio || 1);
+  return {
+    width,
+    height,
+    pixelWidth: Math.max(1, Math.floor(width * pixelRatio)),
+    pixelHeight: Math.max(1, Math.floor(height * pixelRatio))
+  };
+}
+
+function initPostProcessing() {
+  if (!renderer || !camera) return;
+  const { pixelWidth, pixelHeight } = getViewportPixelSize();
+
+  composer = new EffectComposer(renderer);
+  renderPass = new RenderPass(scene, camera);
+  composer.addPass(renderPass);
+
+  ssaoPass = new SSAOPass(scene, camera, pixelWidth, pixelHeight);
+  ssaoPass.enabled = false;
+  ssaoPass.kernelRadius = 8;
+  ssaoPass.minDistance = 0.005;
+  ssaoPass.maxDistance = 0.2;
+  composer.addPass(ssaoPass);
+
+  smaaPass = new SMAAPass(pixelWidth, pixelHeight);
+  smaaPass.enabled = false;
+  composer.addPass(smaaPass);
+
+  postProcessingEnabled = false;
+}
+
+function updateComposerSize(width, height) {
+  if (!composer || !renderer) return;
+  const pixelRatio = renderer.getPixelRatio();
+  const pixelWidth = Math.max(1, Math.floor(width * pixelRatio));
+  const pixelHeight = Math.max(1, Math.floor(height * pixelRatio));
+
+  composer.setSize(width, height);
+  if (ssaoPass && typeof ssaoPass.setSize === 'function') {
+    ssaoPass.setSize(pixelWidth, pixelHeight);
+  }
+  if (smaaPass && typeof smaaPass.setSize === 'function') {
+    smaaPass.setSize(pixelWidth, pixelHeight);
+  }
+}
+
+function updateLineMaterialsResolution(width, height) {
+  if (lineMaterials.size === 0) return;
+  const pixelRatio = renderer ? renderer.getPixelRatio() : (window.devicePixelRatio || 1);
+  const effectiveWidth = Math.max(1, Math.floor(width * pixelRatio));
+  const effectiveHeight = Math.max(1, Math.floor(height * pixelRatio));
+  lineMaterials.forEach((material) => {
+    if (!material) return;
+    if (!material.resolution) {
+      material.resolution = new THREE.Vector2();
+    }
+    material.resolution.set(effectiveWidth, effectiveHeight);
+    material.needsUpdate = true;
+  });
+}
 let contactShadowMesh = null;
 let cogGroup = null;
 const doorAnimations = new Set();
