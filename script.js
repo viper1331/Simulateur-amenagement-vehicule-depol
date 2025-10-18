@@ -9,6 +9,30 @@ import { RenderPass } from './libs/jsm/postprocessing/RenderPass.js';
 import { SMAAPass } from './libs/jsm/postprocessing/SMAAPass.js';
 import { SSAOPass } from './libs/jsm/postprocessing/SSAOPass.js';
 
+const APP_LOG_PREFIX = '[Simulateur]';
+const debugLog = (message, details) => {
+  if (details !== undefined) {
+    console.debug(`${APP_LOG_PREFIX} ${message}`, details);
+  } else {
+    console.debug(`${APP_LOG_PREFIX} ${message}`);
+  }
+};
+const errorLog = (message, error) => {
+  if (error !== undefined) {
+    console.error(`${APP_LOG_PREFIX} ${message}`, error);
+  } else {
+    console.error(`${APP_LOG_PREFIX} ${message}`);
+  }
+};
+
+window.addEventListener('error', (event) => {
+  errorLog('Uncaught error', event.error || event.message);
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  errorLog('Unhandled promise rejection', event.reason);
+});
+
 const mmToM = (value) => (Number.isFinite(value) ? value / 1000 : null);
 const mToMm = (value) => (Number.isFinite(value) ? value * 1000 : null);
 const DEFAULT_SNAP_STEP = 0.001;
@@ -96,6 +120,7 @@ function getStoredQualityMode() {
 
 function storeQualityMode(mode) {
   try {
+    debugLog('Persisting quality mode', mode);
     window.localStorage.setItem(QUALITY_STORAGE_KEY, mode);
   } catch (error) {
     console.warn('Impossible de sauvegarder la qualité', error);
@@ -127,6 +152,7 @@ function saveCollapsibleState(state) {
 
 function initCollapsiblePanels() {
   const savedState = loadCollapsibleState();
+  debugLog('Restored collapsible panel state', savedState);
   const sections = document.querySelectorAll('[data-collapsible]');
   sections.forEach((section, index) => {
     const toggle = section.querySelector('[data-collapse-toggle]');
@@ -161,6 +187,7 @@ function initCollapsiblePanels() {
 }
 
 let qualityMode = getStoredQualityMode();
+debugLog('Initial quality mode', qualityMode);
 const sharedMaterials = new Map();
 const lineMaterials = new Set();
 
@@ -710,12 +737,14 @@ function applyQualityMode(mode, { skipSave = false } = {}) {
   if (!QUALITY_PROFILES[mode]) {
     mode = 'balanced';
   }
+  debugLog('Applying quality profile', { mode, skipSave });
   qualityMode = mode;
   state.qualityMode = mode;
   if (!skipSave) {
     storeQualityMode(mode);
   }
   const profile = QUALITY_PROFILES[mode];
+  debugLog('Quality profile details', profile);
   renderer.toneMappingExposure = profile.toneMappingExposure;
   renderer.shadowMap.enabled = profile.shadows;
   updateShadowMapSize(keyLight, profile.shadowMapSize);
@@ -2723,6 +2752,7 @@ function updateHandleDrag(event) {
 }
 
 function initScene() {
+  debugLog('Initializing 3D scene', { qualityMode });
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0c12);
 
@@ -2802,6 +2832,7 @@ function initScene() {
 
   updateCameraFromOrbit();
   animate();
+  debugLog('3D scene initialized');
 }
 
 function getViewportWidth() {
@@ -2998,6 +3029,7 @@ function updateWalkway() {
 }
 
 function initUI() {
+  debugLog('Initializing UI');
   ui.chassisSelect = document.getElementById('chassis-select');
   ui.chassisPtac = document.getElementById('chassis-ptac');
   ui.chassisWheelbase = document.getElementById('chassis-wheelbase');
@@ -3110,6 +3142,7 @@ function initUI() {
 
   bindUIEvents();
   updateDoorUi();
+  debugLog('UI initialization complete');
 }
 
 function populateChassisOptions(preferredId) {
@@ -5333,10 +5366,12 @@ function confirmAction(title, message, onConfirm) {
 }
 
 function initApp() {
+  debugLog('Starting application initialization');
   initScene();
   initUI();
   pushHistory();
   updateAnalysis();
+  debugLog('Application initialization finished');
 }
 
 initApp();
