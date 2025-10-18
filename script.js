@@ -1,5 +1,14 @@
 import * as THREE from './libs/three.module.js';
 import { unzipSync, strFromU8 } from './libs/fflate.module.js';
+import { RoundedBoxGeometry } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { TubeGeometry } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/src/geometries/TubeGeometry.js';
+import { LineSegments2 } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/lines/LineSegments2.js';
+import { LineSegmentsGeometry } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/lines/LineSegmentsGeometry.js';
+import { LineMaterial } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/lines/LineMaterial.js';
+import { EffectComposer } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/postprocessing/RenderPass.js';
+import { SMAAPass } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/postprocessing/SMAAPass.js';
+import { SSAOPass } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/postprocessing/SSAOPass.js';
 
 const mmToM = (value) => (Number.isFinite(value) ? value / 1000 : null);
 const mToMm = (value) => (Number.isFinite(value) ? value * 1000 : null);
@@ -7,6 +16,93 @@ const DEFAULT_SNAP_STEP = 0.001;
 const snapValue = (value, step = DEFAULT_SNAP_STEP) => Math.round(value / step) * step;
 const degToRad = (deg) => deg * Math.PI / 180;
 const radToDeg = (rad) => rad * 180 / Math.PI;
+
+const MATERIAL_PROFILES = {
+  paintedMetal: {
+    metalness: 0.15,
+    roughness: 0.35,
+    sheen: 0.0,
+    clearcoat: 0.2,
+    clearcoatRoughness: 0.3
+  },
+  stainless: {
+    metalness: 0.9,
+    roughness: 0.2,
+    clearcoat: 0.4,
+    clearcoatRoughness: 0.15
+  },
+  rubber: {
+    metalness: 0.0,
+    roughness: 0.8
+  }
+};
+
+const RAL_COLORS = {
+  chassis: 0x9DA3A6,
+  chassisAccent: 0x778087,
+  hydroTank: 0x2A6BB1,
+  waterTank: 0x3C8DFF,
+  pumps: 0x6D55C2,
+  hose: 0x2A9771,
+  cabinets: 0xB7C1C9
+};
+
+const QUALITY_STORAGE_KEY = 'sim-quality-mode';
+const QUALITY_PROFILES = {
+  draft: {
+    label: 'Draft',
+    toneMappingExposure: 0.95,
+    shadowMapSize: 512,
+    shadows: false,
+    ssao: false,
+    clearcoatBoost: 0,
+    gridDivisions: 10
+  },
+  balanced: {
+    label: 'Balanced',
+    toneMappingExposure: 1.05,
+    shadowMapSize: 1024,
+    shadows: true,
+    ssao: true,
+    ssaoKernel: 8,
+    clearcoatBoost: 0.05,
+    gridDivisions: 20
+  },
+  high: {
+    label: 'High',
+    toneMappingExposure: 1.1,
+    shadowMapSize: 2048,
+    shadows: true,
+    ssao: true,
+    ssaoKernel: 12,
+    clearcoatBoost: 0.1,
+    gridDivisions: 40
+  }
+};
+
+function getStoredQualityMode() {
+  try {
+    const saved = window.localStorage.getItem(QUALITY_STORAGE_KEY);
+    if (saved && QUALITY_PROFILES[saved]) {
+      return saved;
+    }
+  } catch (error) {
+    console.warn('Impossible de charger la qualité enregistrée', error);
+  }
+  return 'balanced';
+}
+
+function storeQualityMode(mode) {
+  try {
+    window.localStorage.setItem(QUALITY_STORAGE_KEY, mode);
+  } catch (error) {
+    console.warn('Impossible de sauvegarder la qualité', error);
+  }
+}
+
+let qualityMode = getStoredQualityMode();
+const sharedMaterials = new Map();
+const lineMaterials = new Set();
 
 const chassisCatalog = [
   {
@@ -39,7 +135,7 @@ const chassisCatalog = [
     sideDoorEntryWidth: null,
     rearDoorLowerEntryWidth: null,
     interiorHeight: null,
-    color: 0x8c9aa8
+    color: RAL_COLORS.chassis
   },
   {
     id: 'kerax',
@@ -71,7 +167,7 @@ const chassisCatalog = [
     sideDoorEntryWidth: null,
     rearDoorLowerEntryWidth: null,
     interiorHeight: null,
-    color: 0x9fa8b5
+    color: RAL_COLORS.chassisAccent
   },
   {
     id: 'premium',
@@ -103,7 +199,7 @@ const chassisCatalog = [
     sideDoorEntryWidth: null,
     rearDoorLowerEntryWidth: null,
     interiorHeight: null,
-    color: 0x8d939c
+    color: RAL_COLORS.chassis
   }
 ];
 
@@ -134,7 +230,7 @@ const moduleCatalog = [
     name: 'Cuve 5m³',
     shape: 'box',
     size: { x: 1.6, y: 1.6, z: 2.4 },
-    color: 0x2c7ef4,
+    color: RAL_COLORS.hydroTank,
     massEmpty: 680,
     fluidVolume: 5000,
     defaultFill: 60,
@@ -153,7 +249,7 @@ const moduleCatalog = [
     name: 'Cuve 3m³',
     shape: 'box',
     size: { x: 1.4, y: 1.4, z: 2.0 },
-    color: 0x368dfc,
+    color: RAL_COLORS.waterTank,
     massEmpty: 520,
     fluidVolume: 3000,
     defaultFill: 50,
@@ -172,7 +268,7 @@ const moduleCatalog = [
     name: 'Pompe haute pression',
     shape: 'box',
     size: { x: 1.2, y: 1.4, z: 1.6 },
-    color: 0xff6b3d,
+    color: RAL_COLORS.pumps,
     massEmpty: 320,
     fluidVolume: 40,
     defaultFill: 0,
@@ -191,7 +287,7 @@ const moduleCatalog = [
     name: 'Enrouleur double',
     shape: 'box',
     size: { x: 1.4, y: 1.2, z: 1.2 },
-    color: 0xffc13d,
+    color: RAL_COLORS.hose,
     massEmpty: 210,
     fluidVolume: 120,
     defaultFill: 20,
@@ -210,7 +306,7 @@ const moduleCatalog = [
     name: 'Armoire équipement',
     shape: 'box',
     size: { x: 1.6, y: 2.0, z: 1.0 },
-    color: 0x9b6ef3,
+    color: RAL_COLORS.cabinets,
     massEmpty: 180,
     fluidVolume: 0,
     defaultFill: 0,
@@ -221,7 +317,33 @@ const moduleCatalog = [
     librarySource: BUILTIN_MODULE_LIBRARY.source,
     libraryLicense: BUILTIN_MODULE_LIBRARY.license,
     libraryWebsite: BUILTIN_MODULE_LIBRARY.website,
-    isCustom: false
+    isCustom: false,
+    doors: [
+      {
+        id: 'cabinet-large-left',
+        label: 'Porte gauche',
+        type: 'swing',
+        hingeSide: 'left',
+        axis: 'y',
+        widthRatio: 0.48,
+        heightRatio: 0.85,
+        thickness: 0.04,
+        openAngleDeg: 110,
+        openTimeMs: 1200
+      },
+      {
+        id: 'cabinet-large-right',
+        label: 'Porte droite',
+        type: 'swing',
+        hingeSide: 'right',
+        axis: 'y',
+        widthRatio: 0.48,
+        heightRatio: 0.85,
+        thickness: 0.04,
+        openAngleDeg: 110,
+        openTimeMs: 1200
+      }
+    ]
   },
   {
     id: 'cabinet-ops',
@@ -229,7 +351,7 @@ const moduleCatalog = [
     name: 'Pupitre opérateur',
     shape: 'box',
     size: { x: 1.0, y: 1.5, z: 1.2 },
-    color: 0xb58ff9,
+    color: RAL_COLORS.cabinets,
     massEmpty: 140,
     fluidVolume: 0,
     defaultFill: 0,
@@ -240,7 +362,20 @@ const moduleCatalog = [
     librarySource: BUILTIN_MODULE_LIBRARY.source,
     libraryLicense: BUILTIN_MODULE_LIBRARY.license,
     libraryWebsite: BUILTIN_MODULE_LIBRARY.website,
-    isCustom: false
+    isCustom: false,
+    doors: [
+      {
+        id: 'cabinet-ops-front',
+        label: 'Volet opérateur',
+        type: 'lift',
+        axis: 'z',
+        widthRatio: 0.9,
+        heightRatio: 0.7,
+        thickness: 0.035,
+        slideDistanceMm: 400,
+        openTimeMs: 1500
+      }
+    ]
   }
 ];
 
@@ -367,6 +502,55 @@ function normalizeModuleShape(value) {
   return MODULE_SHAPES.includes(normalized) ? normalized : 'box';
 }
 
+function getMaterialKey(color, profileKey, overrides) {
+  const overrideKey = overrides ? JSON.stringify(overrides) : '';
+  return `${color}-${profileKey}-${overrideKey}-${qualityMode}`;
+}
+
+function getPhysicalMaterial(color, profileKey = 'paintedMetal', overrides = {}) {
+  const profile = MATERIAL_PROFILES[profileKey] || MATERIAL_PROFILES.paintedMetal;
+  const quality = QUALITY_PROFILES[qualityMode] || QUALITY_PROFILES.balanced;
+  const key = getMaterialKey(color, profileKey, overrides);
+  if (sharedMaterials.has(key)) {
+    return sharedMaterials.get(key);
+  }
+  const material = new THREE.MeshPhysicalMaterial({
+    color,
+    metalness: profile.metalness,
+    roughness: profile.roughness,
+    sheen: profile.sheen ?? 0,
+    clearcoat: (profile.clearcoat ?? 0) + (quality.clearcoatBoost || 0),
+    clearcoatRoughness: profile.clearcoatRoughness ?? 0.25,
+    transparent: false,
+    ...overrides
+  });
+  sharedMaterials.set(key, material);
+  return material;
+}
+
+function registerLineMaterial(material) {
+  lineMaterials.add(material);
+  material.resolution = material.resolution || new THREE.Vector2();
+  material.resolution.set(getViewportWidth(), getViewportHeight());
+}
+
+function createEdgeLines(geometry, color = 0x0f1924, linewidth = 1.4) {
+  const edgesGeo = new THREE.EdgesGeometry(geometry);
+  const lineGeo = new LineSegmentsGeometry();
+  lineGeo.fromEdgesGeometry(edgesGeo);
+  const lineMat = new LineMaterial({
+    color,
+    linewidth,
+    transparent: true,
+    opacity: 0.8,
+    depthTest: true
+  });
+  registerLineMaterial(lineMat);
+  const line = new LineSegments2(lineGeo, lineMat);
+  line.computeLineDistances();
+  return line;
+}
+
 function createModuleGeometry(shape, size) {
   const safeSize = {
     x: Number(size?.x) || 0.2,
@@ -378,50 +562,631 @@ function createModuleGeometry(shape, size) {
     const radius = Math.max(diameter / 2, 0.05);
     return new THREE.CylinderGeometry(radius, radius, Math.max(safeSize.y, 0.05), 32);
   }
-  return new THREE.BoxGeometry(Math.max(safeSize.x, 0.05), Math.max(safeSize.y, 0.05), Math.max(safeSize.z, 0.05));
+  const minDim = Math.max(Math.min(safeSize.x, safeSize.y, safeSize.z), 0.01);
+  const radius = THREE.MathUtils.clamp(minDim * 0.18, 0.01, 0.02);
+  return new RoundedBoxGeometry(
+    Math.max(safeSize.x, 0.05),
+    Math.max(safeSize.y, 0.05),
+    Math.max(safeSize.z, 0.05),
+    radius,
+    4
+  );
 }
 
-function updateMeshGeometryFromDefinition(mesh, definition) {
-  if (!mesh) return;
-  const shape = normalizeModuleShape(definition.shape);
-  const geometry = createModuleGeometry(shape, definition.size);
-  if (mesh.geometry) {
-    mesh.geometry.dispose();
+function attachIndustrialEdges(target, geometry, color, linewidth) {
+  const edges = createEdgeLines(geometry, color, linewidth);
+  edges.name = 'edges';
+  target.add(edges);
+  return edges;
+}
+
+function createGenericModuleVisual(shape, size, color, profileKey) {
+  const geometry = createModuleGeometry(shape, size);
+  const material = getPhysicalMaterial(color, profileKey);
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  attachIndustrialEdges(mesh, geometry, 0x0b131f, 1.2);
+  return { mesh, geometry };
+}
+
+function createHoseHelix(radius, height, turns, thickness) {
+  class HelixCurve extends THREE.Curve {
+    constructor(r, h, t) {
+      super();
+      this.radius = r;
+      this.height = h;
+      this.turns = t;
+    }
+
+    getPoint(t) {
+      const angle = this.turns * Math.PI * 2 * t;
+      const x = Math.cos(angle) * this.radius;
+      const z = Math.sin(angle) * this.radius;
+      const y = -this.height / 2 + this.height * t;
+      return new THREE.Vector3(x, y, z);
+    }
   }
-  mesh.geometry = geometry;
-  mesh.position.y = definition.size.y / 2;
-  mesh.children.forEach((child) => {
-    if (child.isLineSegments) {
-      if (child.geometry) {
-        child.geometry.dispose();
+
+  const curve = new HelixCurve(radius, height, turns);
+  const tubularSegments = Math.max(120, Math.floor(turns * 120));
+  return new TubeGeometry(curve, tubularSegments, thickness, 16, false);
+}
+
+function createHoseReelVisual(size, frameColor) {
+  const group = new THREE.Group();
+  group.name = 'hosereel';
+
+  const frame = createGenericModuleVisual('box', size, frameColor, 'paintedMetal');
+  frame.mesh.scale.set(1, 0.45, 1);
+  frame.mesh.position.y = size.y * 0.225;
+  group.add(frame.mesh);
+
+  const supportHeight = size.y * 0.6;
+  const supportWidth = size.x * 0.85;
+  const drumRadius = Math.min(size.y, size.z) * 0.38;
+  const drumWidth = supportWidth * 0.45;
+  const flangeThickness = Math.max(size.x * 0.05, 0.05);
+
+  const flangeGeometry = new THREE.CylinderGeometry(drumRadius, drumRadius, flangeThickness, 48);
+  const flangeMaterial = getPhysicalMaterial(frameColor, 'paintedMetal');
+  const flangeOffset = drumWidth / 2;
+
+  const flangeLeft = new THREE.Mesh(flangeGeometry, flangeMaterial);
+  flangeLeft.rotation.z = Math.PI / 2;
+  flangeLeft.position.set(0, supportHeight / 2, -flangeOffset);
+  flangeLeft.castShadow = flangeLeft.receiveShadow = true;
+  attachIndustrialEdges(flangeLeft, flangeGeometry, 0x11161f, 1.0);
+
+  const flangeRight = flangeLeft.clone();
+  flangeRight.position.z = flangeOffset;
+
+  const coreRadius = drumRadius * 0.35;
+  const coreGeometry = new THREE.CylinderGeometry(coreRadius, coreRadius, drumWidth, 24);
+  const coreMaterial = getPhysicalMaterial(RAL_COLORS.chassisAccent, 'stainless');
+  const core = new THREE.Mesh(coreGeometry, coreMaterial);
+  core.rotation.z = Math.PI / 2;
+  core.position.set(0, supportHeight / 2, 0);
+  core.castShadow = core.receiveShadow = true;
+  attachIndustrialEdges(core, coreGeometry, 0x202a33, 1.0);
+
+  const hoseGeometry = createHoseHelix(coreRadius * 1.1, drumWidth * 0.9, 6, Math.max(size.y, size.z) * 0.03);
+  const hoseMaterial = getPhysicalMaterial(RAL_COLORS.hose, 'rubber');
+  const hose = new THREE.Mesh(hoseGeometry, hoseMaterial);
+  hose.rotation.x = Math.PI / 2;
+  hose.position.set(0, supportHeight / 2, 0);
+  hose.castShadow = hose.receiveShadow = true;
+
+  group.add(flangeLeft, flangeRight, core, hose);
+
+  group.userData.visualType = 'hosereel';
+  return group;
+}
+
+function createPumpVisual(size, color) {
+  const group = new THREE.Group();
+  group.name = 'pump';
+
+  const body = createGenericModuleVisual('box', size, color, 'paintedMetal');
+  body.mesh.position.y = size.y / 2;
+  group.add(body.mesh);
+
+  const inletRadius = Math.min(size.x, size.z) * 0.12;
+  const inletGeometry = new THREE.CylinderGeometry(inletRadius, inletRadius, size.z * 0.6, 24);
+  const connectorMaterial = getPhysicalMaterial(RAL_COLORS.chassisAccent, 'stainless');
+  const inlet = new THREE.Mesh(inletGeometry, connectorMaterial);
+  inlet.rotation.x = Math.PI / 2;
+  inlet.position.set(-size.x * 0.35, size.y * 0.6, 0);
+  inlet.castShadow = inlet.receiveShadow = true;
+  attachIndustrialEdges(inlet, inletGeometry, 0x1b2230, 1.0);
+
+  const outlet = inlet.clone();
+  outlet.position.x = size.x * 0.35;
+
+  const curvePoints = [
+    new THREE.Vector3(-size.x * 0.35, size.y * 0.6, 0),
+    new THREE.Vector3(-size.x * 0.15, size.y * 0.8, size.z * 0.2),
+    new THREE.Vector3(size.x * 0.15, size.y * 0.8, -size.z * 0.2),
+    new THREE.Vector3(size.x * 0.35, size.y * 0.6, 0)
+  ];
+  const curve = new THREE.CatmullRomCurve3(curvePoints);
+  const pipeGeometry = new TubeGeometry(curve, 48, inletRadius * 0.6, 16, false);
+  const pipeMaterial = getPhysicalMaterial(RAL_COLORS.hose, 'rubber');
+  const pipe = new THREE.Mesh(pipeGeometry, pipeMaterial);
+  pipe.castShadow = pipe.receiveShadow = true;
+
+  const jointGeometry = new THREE.TorusGeometry(inletRadius * 0.9, inletRadius * 0.3, 16, 24);
+  const jointLeft = new THREE.Mesh(jointGeometry, connectorMaterial);
+  jointLeft.rotation.set(Math.PI / 2, 0, 0);
+  jointLeft.position.copy(curvePoints[1]);
+  jointLeft.castShadow = jointLeft.receiveShadow = true;
+  const jointRight = jointLeft.clone();
+  jointRight.position.copy(curvePoints[2]);
+
+  group.add(inlet, outlet, pipe, jointLeft, jointRight);
+  return group;
+}
+
+function createCabinetVisual(size, color) {
+  const group = new THREE.Group();
+  group.name = 'cabinet';
+  const body = createGenericModuleVisual('box', size, color, 'paintedMetal');
+  body.mesh.position.y = size.y / 2;
+  group.add(body.mesh);
+
+  const grooveGeometry = new THREE.PlaneGeometry(size.x * 0.9, 0.001);
+  const grooveMaterial = new THREE.MeshBasicMaterial({
+    color: 0x1d2a33,
+    transparent: true,
+    opacity: 0.35,
+    side: THREE.DoubleSide
+  });
+  const grooveCount = 3;
+  for (let i = 0; i < grooveCount; i++) {
+    const groove = new THREE.Mesh(grooveGeometry, grooveMaterial.clone());
+    groove.rotation.y = Math.PI / 2;
+    groove.position.set(0, size.y * (0.25 + 0.2 * i), size.z / 2 + 0.001);
+    group.add(groove);
+  }
+
+  const handleCount = 4;
+  const handleRadius = Math.min(size.x, size.y) * 0.025;
+  const handleHeight = size.y * 0.1;
+  const handleGeometry = new THREE.CylinderGeometry(handleRadius, handleRadius, handleHeight, 12);
+  const handleMaterial = getPhysicalMaterial(RAL_COLORS.chassisAccent, 'stainless');
+  const handles = new THREE.InstancedMesh(handleGeometry, handleMaterial, handleCount);
+  const dummy = new THREE.Object3D();
+  for (let i = 0; i < handleCount; i++) {
+    const v = (i % 2 === 0 ? -1 : 1) * size.x * 0.35;
+    const h = size.y * (0.25 + 0.2 * Math.floor(i / 2));
+    dummy.position.set(v, h, size.z / 2 + handleHeight / 2);
+    dummy.rotation.x = Math.PI / 2;
+    dummy.updateMatrix();
+    handles.setMatrixAt(i, dummy.matrix);
+  }
+  handles.castShadow = handles.receiveShadow = true;
+  group.add(handles);
+
+  return group;
+}
+
+function createSwingDoor(door, size, color) {
+  const group = new THREE.Group();
+  group.name = door.id || 'swing-door';
+  const width = size.x * (door.widthRatio || 0.5);
+  const height = size.y * (door.heightRatio || 0.8);
+  const thickness = door.thickness ?? 0.04;
+  const radius = THREE.MathUtils.clamp(Math.min(width, height) * 0.1, 0.005, 0.05);
+  const geometry = new RoundedBoxGeometry(width, height, thickness, radius, 3);
+  const material = getPhysicalMaterial(color, 'paintedMetal', { roughness: 0.35 });
+  const panel = new THREE.Mesh(geometry, material);
+  panel.castShadow = true;
+  panel.receiveShadow = true;
+  attachIndustrialEdges(panel, geometry, 0x121c24, 1.0);
+  const hingeSide = (door.hingeSide || 'left').toLowerCase() === 'right' ? 1 : -1;
+  const pivot = new THREE.Group();
+  pivot.position.set(hingeSide * (size.x / 2), height / 2, size.z / 2 + thickness / 2 + 0.001);
+  panel.position.set(hingeSide * (-width / 2), 0, 0);
+  pivot.add(panel);
+
+  const handleGeometry = new THREE.CylinderGeometry(thickness * 0.25, thickness * 0.25, height * 0.12, 12);
+  const handleMaterial = getPhysicalMaterial(RAL_COLORS.chassisAccent, 'stainless');
+  const handle = new THREE.Mesh(handleGeometry, handleMaterial);
+  handle.rotation.z = Math.PI / 2;
+  handle.position.set(-hingeSide * (width * 0.35), 0, thickness * 0.6);
+  panel.add(handle);
+
+  group.add(pivot);
+  group.userData = {
+    type: 'swing',
+    config: door,
+    panel,
+    pivot,
+    openAngleDeg: door.openAngleDeg ?? 110,
+    openTimeMs: door.openTimeMs ?? 1200,
+    progress: 0,
+    hingeSide,
+    baseRotation: 0
+  };
+  return group;
+}
+
+function createLiftDoor(door, size, color) {
+  const group = new THREE.Group();
+  group.name = door.id || 'lift-door';
+  const width = size.x * (door.widthRatio || 0.8);
+  const height = size.y * (door.heightRatio || 0.6);
+  const thickness = door.thickness ?? 0.035;
+  const radius = THREE.MathUtils.clamp(Math.min(width, height) * 0.12, 0.005, 0.05);
+  const geometry = new RoundedBoxGeometry(width, height, thickness, radius, 3);
+  const material = getPhysicalMaterial(color, 'paintedMetal', { roughness: 0.3 });
+  const panel = new THREE.Mesh(geometry, material);
+  panel.castShadow = true;
+  panel.receiveShadow = true;
+  attachIndustrialEdges(panel, geometry, 0x121c24, 1.0);
+  panel.position.set(0, height / 2, size.z / 2 + thickness / 2 + 0.001);
+  panel.userData = { basePosition: panel.position.clone() };
+  group.add(panel);
+  group.userData = {
+    type: 'lift',
+    config: door,
+    panel,
+    openTimeMs: door.openTimeMs ?? 1400,
+    slideDistance: (door.slideDistanceMm ?? 400) / 1000,
+    progress: 0
+  };
+  return group;
+}
+
+function attachModuleDoors(pivot, definition, size, baseColor) {
+  if (!pivot || !definition) return [];
+  const doors = Array.isArray(definition.doors) ? definition.doors : [];
+  const created = [];
+  doors.forEach((door) => {
+    let doorGroup = null;
+    if (door.type === 'swing') {
+      doorGroup = createSwingDoor(door, size, baseColor);
+    } else if (door.type === 'lift') {
+      doorGroup = createLiftDoor(door, size, baseColor);
+    }
+    if (doorGroup) {
+      pivot.add(doorGroup);
+      created.push({
+        id: door.id,
+        label: door.label || door.id,
+        type: doorGroup.userData.type,
+        group: doorGroup,
+        config: door,
+        progress: 0,
+        open: false,
+        alert: false
+      });
+    }
+  });
+  return created;
+}
+
+function configureDirectionalLight(light) {
+  if (!light) return;
+  light.castShadow = true;
+  light.shadow.camera.near = 0.5;
+  light.shadow.camera.far = 50;
+  const span = 16;
+  light.shadow.camera.left = -span;
+  light.shadow.camera.right = span;
+  light.shadow.camera.top = span;
+  light.shadow.camera.bottom = -span;
+  light.shadow.bias = -0.00018;
+  updateShadowMapSize(light, QUALITY_PROFILES[qualityMode].shadowMapSize);
+}
+
+function updateShadowMapSize(light, size) {
+  if (!light || !light.shadow) return;
+  const mapSize = Math.max(256, size || 1024);
+  light.shadow.mapSize.set(mapSize, mapSize);
+  if (light.shadow.map) {
+    light.shadow.map.dispose();
+  }
+}
+
+function createContactShadowMesh() {
+  const geometry = new THREE.PlaneGeometry(18, 18);
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(0x000000) },
+      uOpacity: { value: 0.28 },
+      uRadius: { value: 0.85 }
+    },
+    transparent: true,
+    depthWrite: false,
+    vertexShader: `
+      varying vec2 vUv;
+      void main() {
+        vUv = uv * 2.0 - 1.0;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
-      child.geometry = new THREE.EdgesGeometry(geometry);
+    `,
+    fragmentShader: `
+      varying vec2 vUv;
+      uniform vec3 uColor;
+      uniform float uOpacity;
+      uniform float uRadius;
+      void main() {
+        float dist = length(vUv);
+        float softness = smoothstep(uRadius, uRadius - 0.35, dist);
+        float alpha = (1.0 - softness) * uOpacity;
+        gl_FragColor = vec4(uColor, alpha);
+      }
+    `
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = 0.0005;
+  mesh.renderOrder = -1;
+  return mesh;
+}
+
+function initPostProcessing() {
+  composer = new EffectComposer(renderer);
+  renderPass = new RenderPass(scene, camera);
+  composer.addPass(renderPass);
+  ssaoPass = new SSAOPass(scene, camera, getViewportWidth(), getViewportHeight());
+  ssaoPass.kernelRadius = 8;
+  ssaoPass.minDistance = 0.005;
+  ssaoPass.maxDistance = 0.2;
+  composer.addPass(ssaoPass);
+  smaaPass = new SMAAPass(getViewportWidth(), getViewportHeight());
+  composer.addPass(smaaPass);
+}
+
+function updateComposerSize(width, height) {
+  if (!composer) return;
+  composer.setSize(width, height);
+  if (ssaoPass) ssaoPass.setSize(width, height);
+  if (smaaPass && smaaPass.setSize) smaaPass.setSize(width, height);
+}
+
+function updateLineMaterialsResolution(width, height) {
+  lineMaterials.forEach((material) => {
+    if (!material.resolution) {
+      material.resolution = new THREE.Vector2();
+    }
+    material.resolution.set(width, height);
+  });
+}
+
+function invalidateMaterialCache() {
+  sharedMaterials.forEach((material) => material.dispose());
+  sharedMaterials.clear();
+  if (state.chassisMesh) {
+    const color = state.chassisMesh.material?.color?.getHex() ?? RAL_COLORS.chassis;
+    const newMaterial = getPhysicalMaterial(color, 'paintedMetal', {
+      transparent: state.chassisOpacity < 1,
+      opacity: state.chassisOpacity
+    });
+    state.chassisMesh.material.dispose();
+    state.chassisMesh.material = newMaterial;
+  }
+  state.modules.forEach((mod) => {
+    if (!mod || !mod.mesh || !mod.definitionId) return;
+    const definition = moduleCatalog.find((item) => item.id === mod.definitionId) || mod;
+    const previousDoors = Array.isArray(mod.doors)
+      ? mod.doors.map((door) => ({ id: door.id, open: door.open, progress: door.progress }))
+      : [];
+    const doorMap = new Map(previousDoors.map((door) => [door.id, door]));
+    const rebuild = updateMeshGeometryFromDefinition(mod.mesh, definition);
+    if (rebuild && rebuild.mesh) {
+      mod.mesh = rebuild.mesh;
+      mod.color = rebuild.color !== undefined ? rebuild.color : mod.color;
+      mod.doors = Array.isArray(rebuild.mesh.userData?.doors)
+        ? rebuild.mesh.userData.doors.map((door) => {
+            const snapshot = doorMap.get(door.id);
+            const restored = {
+              id: door.id,
+              label: door.label,
+              type: door.type,
+              config: door.config,
+              group: door.group,
+              open: snapshot ? snapshot.open : false,
+              progress: snapshot ? snapshot.progress : 0,
+              alert: false,
+              isAnimating: false
+            };
+            applyDoorTransform(mod, restored);
+            return restored;
+          })
+        : [];
     }
   });
 }
 
+function updateGridQuality(divisions) {
+  if (grid) {
+    scene.remove(grid);
+    if (grid.geometry) grid.geometry.dispose();
+  }
+  grid = new THREE.GridHelper(20, divisions, 0x3ea6ff, 0x1f2b3d);
+  grid.material.opacity = 0.25;
+  grid.material.transparent = true;
+  scene.add(grid);
+  grid.visible = state.showGrid;
+}
+
+function updateContactShadowVisibility(visible, opacity) {
+  if (!contactShadowMesh) return;
+  contactShadowMesh.visible = visible;
+  if (contactShadowMesh.material && contactShadowMesh.material.uniforms) {
+    contactShadowMesh.material.uniforms.uOpacity.value = opacity;
+  }
+}
+
+function applyQualityMode(mode, { skipSave = false } = {}) {
+  if (!QUALITY_PROFILES[mode]) {
+    mode = 'balanced';
+  }
+  qualityMode = mode;
+  state.qualityMode = mode;
+  if (!skipSave) {
+    storeQualityMode(mode);
+  }
+  const profile = QUALITY_PROFILES[mode];
+  renderer.toneMappingExposure = profile.toneMappingExposure;
+  renderer.shadowMap.enabled = profile.shadows;
+  updateShadowMapSize(keyLight, profile.shadowMapSize);
+  updateShadowMapSize(fillLight, profile.shadowMapSize);
+  updateGridQuality(profile.gridDivisions);
+  updateContactShadowVisibility(profile.shadows, profile.shadows ? 0.3 : 0.12);
+
+  if (ssaoPass) {
+    ssaoPass.enabled = Boolean(profile.ssao);
+    ssaoPass.kernelRadius = profile.ssaoKernel || 8;
+    ssaoPass.minDistance = 0.005;
+    ssaoPass.maxDistance = 0.2;
+  }
+  if (smaaPass) {
+    smaaPass.enabled = mode === 'high';
+  }
+  postProcessingEnabled = (profile.ssao || mode === 'high');
+
+  invalidateMaterialCache();
+  updateQualityButtons();
+}
+
+function createCogLabelSprite(text) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = 'rgba(8, 12, 18, 0.85)';
+  ctx.fillRect(0, canvas.height * 0.45, canvas.width, canvas.height * 0.55);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 72px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, canvas.width / 2, canvas.height * 0.72);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 4;
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(0.8, 0.4, 1);
+  sprite.userData.canvas = canvas;
+  sprite.userData.context = ctx;
+  sprite.userData.texture = texture;
+  return sprite;
+}
+
+function updateCogLabel(sprite, text) {
+  if (!sprite || !sprite.userData) return;
+  const canvas = sprite.userData.canvas;
+  const ctx = sprite.userData.context;
+  const texture = sprite.userData.texture;
+  if (!canvas || !ctx || !texture) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = 'rgba(8, 12, 18, 0.85)';
+  ctx.fillRect(0, canvas.height * 0.45, canvas.width, canvas.height * 0.55);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 72px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, canvas.width / 2, canvas.height * 0.72);
+  texture.needsUpdate = true;
+}
+
+function ensureCogVisual() {
+  if (cogGroup) return cogGroup;
+  const group = new THREE.Group();
+  const sphere = new THREE.Mesh(
+    new THREE.SphereGeometry(0.05, 24, 24),
+    getPhysicalMaterial(0xffd166, 'stainless', { emissive: new THREE.Color(0x332100) })
+  );
+  sphere.castShadow = true;
+  sphere.receiveShadow = true;
+  group.add(sphere);
+
+  const axisGeometry = new LineSegmentsGeometry();
+  axisGeometry.setPositions([0, 0, 0, 0, -3, 0]);
+  const axisMaterial = new LineMaterial({ color: 0xffb347, linewidth: 2.2, transparent: true, opacity: 0.9 });
+  registerLineMaterial(axisMaterial);
+  const axis = new LineSegments2(axisGeometry, axisMaterial);
+  axis.computeLineDistances();
+  axis.position.y = -0.05;
+  group.add(axis);
+
+  const label = createCogLabelSprite('CoG');
+  if (label) {
+    label.position.set(0, 0.3, 0);
+    group.add(label);
+  }
+
+  group.visible = false;
+  scene.add(group);
+  cogGroup = group;
+  cogGroup.userData = { sphere, axis, label };
+  return group;
+}
+
+function updateCogVisual(analysis) {
+  if (!analysis || !analysis.center) return;
+  const group = ensureCogVisual();
+  group.position.copy(analysis.center);
+  group.visible = true;
+  const label = group.userData?.label;
+  if (label) {
+    const text = `CoG ${analysis.center.x.toFixed(2)} / ${analysis.center.y.toFixed(2)} / ${analysis.center.z.toFixed(2)} m`;
+    updateCogLabel(label, text);
+  }
+}
+
+function updateMeshGeometryFromDefinition(mesh, definition) {
+  if (!mesh) return null;
+  const parent = mesh.parent || null;
+  const position = mesh.position.clone();
+  const rotation = mesh.rotation.clone();
+  if (parent) {
+    parent.remove(mesh);
+  }
+  disposeObject3D(mesh);
+  const { mesh: rebuilt, color } = createModuleMesh(definition);
+  rebuilt.position.copy(position);
+  rebuilt.rotation.copy(rotation);
+  if (parent) {
+    parent.add(rebuilt);
+  }
+  return { mesh: rebuilt, color };
+}
+
 function createModuleMesh(definition, { size, color } = {}) {
-  const resolvedSize = size ? { ...definition.size, ...size } : definition.size;
+  const resolvedSize = size ? { ...definition.size, ...size } : { ...definition.size };
   const shape = normalizeModuleShape(definition.shape);
-  const geometry = createModuleGeometry(shape, resolvedSize);
+  const type = (definition.type || '').toLowerCase();
   const baseColor = color !== undefined
     ? color
-    : (definition.color !== undefined ? definition.color : 0x777777);
-  const material = new THREE.MeshStandardMaterial({
-    color: baseColor,
-    metalness: (definition.type || '').toLowerCase() === 'tank' ? 0.6 : 0.2,
-    roughness: 0.45
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  mesh.position.set(0, resolvedSize.y / 2, 0);
-  const edges = new THREE.LineSegments(
-    new THREE.EdgesGeometry(geometry),
-    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 })
-  );
-  mesh.add(edges);
-  return { mesh, color: baseColor, shape, size: { ...resolvedSize } };
+    : (definition.color !== undefined ? definition.color : RAL_COLORS.cabinets);
+
+  let visual;
+  if (type === 'hosereel') {
+    visual = createHoseReelVisual(resolvedSize, baseColor);
+  } else if (type === 'pump') {
+    visual = createPumpVisual(resolvedSize, baseColor);
+  } else if (type === 'cabinet') {
+    visual = createCabinetVisual(resolvedSize, baseColor);
+  } else {
+    const profile = type === 'tank' ? 'stainless' : 'paintedMetal';
+    const { mesh } = createGenericModuleVisual(shape, resolvedSize, baseColor, profile);
+    mesh.position.y = resolvedSize.y / 2;
+    visual = mesh;
+  }
+
+  const root = new THREE.Group();
+  root.name = definition.name || 'module';
+  root.userData.moduleSize = { ...resolvedSize };
+  root.userData.definition = definition;
+  const pivot = new THREE.Group();
+  pivot.name = 'visual';
+  pivot.position.y = -resolvedSize.y / 2;
+  root.add(pivot);
+
+  if (visual.isMesh || visual.isGroup || visual.isObject3D) {
+    pivot.add(visual);
+  } else {
+    const placeholder = new THREE.Mesh(
+      createModuleGeometry(shape, resolvedSize),
+      getPhysicalMaterial(baseColor, 'paintedMetal')
+    );
+    placeholder.position.y = resolvedSize.y / 2;
+    attachIndustrialEdges(placeholder, placeholder.geometry, 0x0b131f, 1.2);
+    pivot.add(placeholder);
+  }
+
+  const doors = attachModuleDoors(pivot, definition, resolvedSize, baseColor);
+  root.position.set(0, resolvedSize.y / 2, 0);
+  root.castShadow = true;
+  root.receiveShadow = true;
+  root.userData.doors = doors;
+
+  return { mesh: root, color: baseColor, shape, size: { ...resolvedSize }, doors };
 }
 
 function createModuleInstance(definition, overrides = {}) {
@@ -1134,14 +1899,27 @@ function applyModuleDefinitionUpdate(definition) {
     mod.libraryLicense = definition.libraryLicense;
     mod.libraryWebsite = definition.libraryWebsite;
     mod.isCustom = Boolean(definition.isCustom);
-    const color = definition.color !== undefined ? definition.color : 0x777777;
-    mod.color = color;
-    if (mod.mesh && mod.mesh.material) {
-      mod.mesh.material.color.setHex(color);
-      mod.mesh.material.metalness = definition.type === 'Tank' ? 0.6 : 0.2;
-      mod.mesh.material.roughness = 0.45;
+    const color = definition.color !== undefined ? definition.color : mod.color;
+    const rebuild = updateMeshGeometryFromDefinition(mod.mesh, definition);
+    if (rebuild && rebuild.mesh) {
+      mod.mesh = rebuild.mesh;
+      mod.color = rebuild.color !== undefined ? rebuild.color : color;
+      mod.doors = Array.isArray(rebuild.mesh.userData?.doors)
+        ? rebuild.mesh.userData.doors.map((door) => ({
+            id: door.id,
+            label: door.label,
+            type: door.type,
+            config: door.config,
+            group: door.group,
+            open: false,
+            progress: 0,
+            alert: false,
+            isAnimating: false
+          }))
+        : [];
+    } else {
+      mod.color = color;
     }
-    updateMeshGeometryFromDefinition(mod.mesh, definition);
 
     updateModuleLabel(mod);
     if (mod.mesh) {
@@ -1237,6 +2015,7 @@ const state = {
   chassisMesh: null,
   chassisData: null,
   chassisOpacity: 1,
+  qualityMode,
   showChassis: true,
   showGrid: true,
   showGabarit: true,
@@ -1268,7 +2047,19 @@ const DEFAULT_ORBIT_POLAR = Math.PI / 4;
 const DEFAULT_ORBIT_RADIUS = 14;
 const DEFAULT_ORBIT_TARGET_Y = 1.2;
 
-let scene, camera, renderer, grid, hemiLight, dirLight;
+let scene, camera, renderer, grid, hemiLight, keyLight, fillLight, floorMesh;
+let composer, renderPass, ssaoPass, smaaPass, postProcessingEnabled = false;
+let contactShadowMesh = null;
+let cogGroup = null;
+const doorAnimations = new Set();
+let doorAnimationFrame = null;
+const measurementState = {
+  active: false,
+  points: [],
+  group: null,
+  line: null,
+  label: null
+};
 let raycaster, pointer, dragPlane, dragActive = false;
 let dragOffset = new THREE.Vector3();
 let dragMode = 'horizontal';
@@ -1322,6 +2113,46 @@ function disposeModuleLabel(module) {
     module.mesh.remove(module.labelSprite);
   }
   module.labelSprite = null;
+}
+
+function setModuleHighlight(module, active) {
+  if (!module || !module.mesh) return;
+  module.mesh.traverse((child) => {
+    const material = child.material;
+    if (!material) return;
+    if (Array.isArray(material)) {
+      material.forEach((mat) => {
+        if (mat && mat.opacity !== undefined) {
+          if (mat.userData === undefined) {
+            mat.userData = {};
+          }
+          if (mat.userData.baseOpacity === undefined) {
+            mat.userData.baseOpacity = mat.opacity ?? 1;
+          }
+          mat.transparent = true;
+          const target = active ? mat.userData.baseOpacity : mat.userData.baseOpacity * 0.55;
+          mat.opacity = THREE.MathUtils.lerp(mat.opacity, target, 0.35);
+          mat.needsUpdate = true;
+        }
+      });
+      return;
+    }
+    if (material.opacity !== undefined) {
+      if (material.userData === undefined) {
+        material.userData = {};
+      }
+      if (material.userData.baseOpacity === undefined) {
+        material.userData.baseOpacity = material.opacity ?? 1;
+      }
+      material.transparent = true;
+      const target = active ? material.userData.baseOpacity : material.userData.baseOpacity * 0.55;
+      material.opacity = THREE.MathUtils.lerp(material.opacity, target, 0.35);
+      material.needsUpdate = true;
+    }
+    if (material.linewidth !== undefined) {
+      material.linewidth = active ? 1.6 : 1.1;
+    }
+  });
 }
 
 function updateModuleLabel(module) {
@@ -1437,6 +2268,341 @@ const orbitState = {
 };
 
 const ui = {};
+
+function updateQualityButtons() {
+  if (!ui.qualityButtons) return;
+  ui.qualityButtons.forEach((button) => {
+    const mode = button.dataset.qualityMode;
+    button.classList.toggle('is-active', mode === state.qualityMode);
+  });
+}
+
+function updateAxleIndicators(analysis) {
+  if (!analysis) return;
+  if (!ui.axleFrontBar || !ui.axleRearBar) return;
+  const total = Math.max(analysis.totalMass, 1);
+  const frontRatio = THREE.MathUtils.clamp(analysis.frontLoad / total, 0, 1);
+  const rearRatio = THREE.MathUtils.clamp(analysis.rearLoad / total, 0, 1);
+  const limits = { min: 0.45, max: 0.55 };
+  setAxleBarState(ui.axleFrontBar, frontRatio, limits);
+  setAxleBarState(ui.axleRearBar, rearRatio, limits);
+  if (ui.axleFrontLabel) {
+    ui.axleFrontLabel.textContent = `${Math.round(frontRatio * 100)} %`;
+  }
+  if (ui.axleRearLabel) {
+    ui.axleRearLabel.textContent = `${Math.round(rearRatio * 100)} %`;
+  }
+}
+
+function setAxleBarState(element, ratio, limits) {
+  if (!element) return;
+  element.style.setProperty('--axle-ratio', `${Math.round(ratio * 100)}%`);
+  element.style.setProperty('--axle-scale', `${ratio}`);
+  const within = ratio >= limits.min && ratio <= limits.max;
+  element.classList.toggle('is-warning', !within);
+}
+
+function updateToleranceInfo(mod) {
+  if (!ui.detailTolerance) return;
+  if (!mod || !mod.mesh) {
+    ui.detailTolerance.textContent = 'Δdim = —';
+    return;
+  }
+  const target = mod.size || { x: 0, y: 0, z: 0 };
+  const box = new THREE.Box3().setFromObject(mod.mesh);
+  const actual = new THREE.Vector3().subVectors(box.max, box.min);
+  const deltaX = Math.abs(actual.x - (target.x || 0));
+  const deltaY = Math.abs(actual.y - (target.y || 0));
+  const deltaZ = Math.abs(actual.z - (target.z || 0));
+  const maxDelta = Math.max(deltaX, deltaY, deltaZ);
+  ui.detailTolerance.textContent = `Δdim = ${(maxDelta * 1000).toFixed(1)} mm`;
+}
+
+function applyDoorTransform(module, door) {
+  if (!door || !door.group) return;
+  const userData = door.group.userData || {};
+  if (userData.type === 'swing' && userData.pivot) {
+    const angle = THREE.MathUtils.degToRad(userData.openAngleDeg || door.config?.openAngleDeg || 110) * door.progress;
+    const hinge = userData.hingeSide === 1 || (door.config?.hingeSide || '').toLowerCase() === 'right';
+    userData.pivot.rotation.y = hinge ? -angle : angle;
+  } else if (userData.type === 'lift' && userData.panel) {
+    const base = userData.panel.userData?.basePosition || new THREE.Vector3();
+    const distance = userData.slideDistance || (door.config?.slideDistanceMm ?? 400) / 1000;
+    userData.panel.position.y = base.y + distance * door.progress;
+  }
+  door.alert = detectDoorCollision(module, door);
+}
+
+function detectDoorCollision(module, door) {
+  if (!door || !door.group) return false;
+  const doorBox = new THREE.Box3().setFromObject(door.group);
+  for (const other of state.modules) {
+    if (!other.mesh || other === module) continue;
+    const otherBox = new THREE.Box3().setFromObject(other.mesh);
+    if (doorBox.intersectsBox(otherBox)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function requestDoorAnimation() {
+  if (doorAnimationFrame !== null) return;
+  doorAnimationFrame = requestAnimationFrame(stepDoorAnimations);
+}
+
+function stepDoorAnimations(time) {
+  const finished = [];
+  doorAnimations.forEach((anim) => {
+    const elapsed = time - anim.startTime;
+    const progress = THREE.MathUtils.clamp(elapsed / anim.duration, 0, 1);
+    const eased = anim.easing ? anim.easing(progress) : progress;
+    const value = THREE.MathUtils.lerp(anim.startProgress, anim.endProgress, eased);
+    anim.door.progress = value;
+    applyDoorTransform(anim.module, anim.door);
+    if (progress >= 1) {
+      anim.door.open = anim.targetOpen;
+      anim.door.isAnimating = false;
+      finished.push(anim);
+    }
+  });
+  finished.forEach((anim) => doorAnimations.delete(anim));
+  doorAnimationFrame = doorAnimations.size > 0 ? requestAnimationFrame(stepDoorAnimations) : null;
+  updateDoorUi();
+}
+
+function scheduleDoorAnimation(module, door, targetOpen) {
+  if (!door) return;
+  doorAnimations.forEach((anim) => {
+    if (anim.door === door) {
+      doorAnimations.delete(anim);
+    }
+  });
+  const duration = door.config?.openTimeMs ?? door.group.userData?.openTimeMs ?? 1200;
+  door.isAnimating = true;
+  doorAnimations.add({
+    module,
+    door,
+    targetOpen,
+    startTime: performance.now(),
+    duration,
+    startProgress: door.progress,
+    endProgress: targetOpen ? 1 : 0,
+    easing: (t) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
+  });
+  requestDoorAnimation();
+}
+
+function toggleDoor(module, doorId, open) {
+  if (!module || !Array.isArray(module.doors)) return;
+  const door = module.doors.find((item) => item.id === doorId);
+  if (!door) return;
+  if (door.open === open && !door.isAnimating) {
+    return;
+  }
+  scheduleDoorAnimation(module, door, open);
+  updateDoorUi();
+}
+
+function updateDoorUi() {
+  if (!ui.doorControls) return;
+  ui.doorControls.innerHTML = '';
+  const module = state.selected;
+  if (!module || !Array.isArray(module.doors) || module.doors.length === 0) {
+    ui.doorControls.classList.add('is-empty');
+    const empty = document.createElement('p');
+    empty.className = 'door-empty';
+    empty.textContent = 'Aucune cinématique disponible pour ce module.';
+    ui.doorControls.appendChild(empty);
+    return;
+  }
+  ui.doorControls.classList.remove('is-empty');
+  module.doors.forEach((door) => {
+    const row = document.createElement('div');
+    row.className = 'door-row';
+    if (door.alert) {
+      row.classList.add('has-alert');
+    }
+    const label = document.createElement('div');
+    label.className = 'door-label';
+    label.textContent = door.label || door.id;
+    row.appendChild(label);
+
+    const status = document.createElement('div');
+    status.className = 'door-status';
+    status.textContent = door.open ? 'Ouverte' : 'Fermée';
+    row.appendChild(status);
+
+    const progress = document.createElement('div');
+    progress.className = 'door-progress';
+    progress.style.setProperty('--progress', `${Math.round(door.progress * 100)}%`);
+    row.appendChild(progress);
+
+    const actions = document.createElement('div');
+    actions.className = 'door-actions';
+    const openBtn = document.createElement('button');
+    openBtn.type = 'button';
+    openBtn.dataset.doorId = door.id;
+    openBtn.dataset.action = 'open-door';
+    openBtn.textContent = 'Ouvrir';
+    openBtn.disabled = door.open || door.isAnimating;
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.dataset.doorId = door.id;
+    closeBtn.dataset.action = 'close-door';
+    closeBtn.textContent = 'Fermer';
+    closeBtn.disabled = !door.open || door.isAnimating;
+    actions.append(openBtn, closeBtn);
+    row.appendChild(actions);
+
+    if (door.alert) {
+      const alert = document.createElement('div');
+      alert.className = 'door-alert';
+      alert.textContent = 'Accès obstrué';
+      row.appendChild(alert);
+    }
+
+    ui.doorControls.appendChild(row);
+  });
+}
+
+function handleDoorControlClick(event) {
+  const target = event.target.closest('button[data-action][data-door-id]');
+  if (!target) return;
+  event.preventDefault();
+  const doorId = target.dataset.doorId;
+  const action = target.dataset.action;
+  const module = state.selected;
+  if (!module) return;
+  toggleDoor(module, doorId, action === 'open-door');
+}
+
+function ensureMeasurementGroup() {
+  if (!measurementState.group) {
+    measurementState.group = new THREE.Group();
+    measurementState.group.name = 'measurement-tools';
+    scene.add(measurementState.group);
+  }
+  return measurementState.group;
+}
+
+function createMeasurementLabel(text) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.fillStyle = 'rgba(5, 9, 14, 0.85)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 80px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 4;
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(0.7, 0.35, 1);
+  sprite.userData = { canvas, ctx, texture };
+  return sprite;
+}
+
+function updateMeasurementLabel(distance) {
+  if (!measurementState.label) {
+    measurementState.label = createMeasurementLabel('');
+    if (!measurementState.label) return;
+    ensureMeasurementGroup().add(measurementState.label);
+  }
+  const { canvas, ctx, texture } = measurementState.label.userData;
+  if (!canvas || !ctx || !texture) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = 'rgba(5, 9, 14, 0.85)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 80px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`${distance.toFixed(1)} mm`, canvas.width / 2, canvas.height / 2);
+  texture.needsUpdate = true;
+}
+
+function clearMeasurementVisuals() {
+  measurementState.points = [];
+  if (measurementState.line) {
+    if (measurementState.line.material) {
+      measurementState.line.material.dispose();
+    }
+    if (measurementState.line.geometry) {
+      measurementState.line.geometry.dispose();
+    }
+    measurementState.group?.remove(measurementState.line);
+    measurementState.line = null;
+  }
+  if (measurementState.label) {
+    measurementState.group?.remove(measurementState.label);
+    if (measurementState.label.material?.map) {
+      measurementState.label.material.map.dispose();
+    }
+    measurementState.label.material?.dispose();
+    measurementState.label = null;
+  }
+}
+
+function toggleMeasurementMode() {
+  measurementState.active = !measurementState.active;
+  clearMeasurementVisuals();
+  if (measurementState.active) {
+    ui.hud.innerHTML = 'Mode mesure : cliquez deux points (M pour quitter)';
+  } else {
+    ui.hud.innerHTML = '';
+  }
+}
+
+function addMeasurementPoint(event) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const hit = new THREE.Vector3();
+  if (!raycaster.ray.intersectPlane(plane, hit)) {
+    return;
+  }
+  if (measurementState.points.length >= 2) {
+    clearMeasurementVisuals();
+  }
+  measurementState.points.push(hit.clone());
+  if (measurementState.points.length === 2) {
+    updateMeasurementVisual();
+  }
+}
+
+function updateMeasurementVisual() {
+  if (measurementState.points.length !== 2) return;
+  const [a, b] = measurementState.points;
+  const distance = a.clone().sub(b).length() * 1000;
+  ensureMeasurementGroup();
+  const positions = [a.x, a.y + 0.01, a.z, b.x, b.y + 0.01, b.z];
+  if (!measurementState.line) {
+    const geometry = new LineSegmentsGeometry();
+    geometry.setPositions(positions);
+    const material = new LineMaterial({ color: 0xffe27a, linewidth: 3, transparent: true, opacity: 0.9 });
+    registerLineMaterial(material);
+    measurementState.line = new LineSegments2(geometry, material);
+    measurementState.line.computeLineDistances();
+    measurementState.group.add(measurementState.line);
+  } else {
+    measurementState.line.geometry.setPositions(positions);
+    measurementState.line.geometry.needsUpdate = true;
+    measurementState.line.computeLineDistances();
+  }
+  updateMeasurementLabel(distance);
+  if (measurementState.label) {
+    const midpoint = a.clone().add(b).multiplyScalar(0.5);
+    measurementState.label.position.copy(midpoint).add(new THREE.Vector3(0, 0.4, 0));
+  }
+}
 
 function disposeObject3D(object) {
   if (!object) return;
@@ -1845,36 +3011,53 @@ function initScene() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0c12);
 
-  camera = new THREE.PerspectiveCamera(55, getViewportRatio(), 0.1, 200);
-  camera.position.set(8, 8, 10);
+  camera = new THREE.PerspectiveCamera(52, getViewportRatio(), 0.1, 200);
+  camera.position.set(8, 7.5, 9.5);
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.setSize(getViewportWidth(), getViewportHeight());
-  renderer.setPixelRatio(window.devicePixelRatio || 1);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = QUALITY_PROFILES[qualityMode].toneMappingExposure;
+  renderer.physicallyCorrectLights = true;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.domElement.style.touchAction = 'none';
   document.getElementById('canvas-container').appendChild(renderer.domElement);
   renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
 
-  hemiLight = new THREE.HemisphereLight(0xddeeff, 0x202328, 0.6);
+  hemiLight = new THREE.HemisphereLight(0xf1f5ff, 0x1b2230, 0.68);
   scene.add(hemiLight);
 
-  dirLight = new THREE.DirectionalLight(0xffffff, 0.7);
-  dirLight.position.set(5, 10, 2);
-  scene.add(dirLight);
+  keyLight = new THREE.DirectionalLight(0xffffff, 1.15);
+  keyLight.position.set(6, 10, 5);
+  configureDirectionalLight(keyLight);
+  scene.add(keyLight);
 
-  grid = new THREE.GridHelper(20, 20, 0x3ea6ff, 0x1f2b3d);
+  fillLight = new THREE.DirectionalLight(0xd9e2ff, 0.55);
+  fillLight.position.set(-8, 6, -6);
+  configureDirectionalLight(fillLight);
+  scene.add(fillLight);
+
+  grid = new THREE.GridHelper(20, QUALITY_PROFILES[qualityMode].gridDivisions, 0x3ea6ff, 0x1f2b3d);
   grid.material.opacity = 0.25;
   grid.material.transparent = true;
   scene.add(grid);
 
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(20, 20),
-    new THREE.MeshPhongMaterial({ color: 0x0f1117, side: THREE.DoubleSide })
+  floorMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(30, 30),
+    getPhysicalMaterial(0x10161d, 'paintedMetal', { roughness: 0.7, metalness: 0.05 })
   );
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = -0.001;
-  floor.receiveShadow = true;
-  scene.add(floor);
+  floorMesh.rotation.x = -Math.PI / 2;
+  floorMesh.position.y = -0.002;
+  floorMesh.receiveShadow = true;
+  floorMesh.material.transparent = true;
+  floorMesh.material.opacity = 0.98;
+  scene.add(floorMesh);
+
+  contactShadowMesh = createContactShadowMesh();
+  scene.add(contactShadowMesh);
 
   chassisGroup = new THREE.Group();
   scene.add(chassisGroup);
@@ -1890,11 +3073,14 @@ function initScene() {
 
   walkwayMesh = createWalkwayMesh(state.walkwayWidth, DEFAULT_WALKWAY_LENGTH, state.walkwayVisible);
   scene.add(walkwayMesh);
+  ensureCogVisual();
 
   raycaster = new THREE.Raycaster();
   pointer = new THREE.Vector2();
   dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
+  initPostProcessing();
+  applyQualityMode(qualityMode, { skipSave: true });
   applyDisplayFilters();
 
   updateCameraFromOrbit();
@@ -2133,12 +3319,16 @@ function initUI() {
   ui.detailPosZ = document.getElementById('detail-pos-z');
   ui.detailRotX = document.getElementById('detail-rot-x');
   ui.detailRotY = document.getElementById('detail-rot-y');
-  ui.detailRotZ = document.getElementById('detail-rot-z');
+  ui.detailTolerance = document.getElementById('detail-tolerance');
   ui.analysisMass = document.getElementById('analysis-mass');
   ui.analysisCoG = document.getElementById('analysis-cog');
   ui.analysisFront = document.getElementById('analysis-front');
   ui.analysisRear = document.getElementById('analysis-rear');
   ui.analysisMargin = document.getElementById('analysis-margin');
+  ui.axleFrontBar = document.getElementById('axle-front-bar');
+  ui.axleRearBar = document.getElementById('axle-rear-bar');
+  ui.axleFrontLabel = document.getElementById('axle-front-label');
+  ui.axleRearLabel = document.getElementById('axle-rear-label');
   ui.indicatorPtac = document.getElementById('indicator-ptac');
   ui.indicatorWalkway = document.getElementById('indicator-walkway');
   ui.indicatorErrors = document.getElementById('indicator-errors');
@@ -2162,6 +3352,8 @@ function initUI() {
   ui.filterShowUsable = document.getElementById('filter-show-usable');
   ui.filterShowUsableBoundaries = document.getElementById('filter-show-usable-boundaries');
   ui.filterShowLabels = document.getElementById('filter-show-labels');
+  ui.doorControls = document.getElementById('door-controls');
+  ui.qualityButtons = Array.from(document.querySelectorAll('[data-quality-mode]'));
 
   if (ui.modulesSolidToggle) {
     state.modulesSolid = ui.modulesSolidToggle.checked;
@@ -2196,8 +3388,10 @@ function initUI() {
   syncWalkwayControls(state.walkwayWidth);
   syncWalkwayPositionControls(state.walkwayWidth, getEffectiveWalkwayLength());
   syncChassisTransparencyControls();
+  updateQualityButtons();
 
   bindUIEvents();
+  updateDoorUi();
 }
 
 function populateChassisOptions(preferredId) {
@@ -2668,6 +3862,21 @@ function bindUIEvents() {
     });
   }
 
+  if (ui.qualityButtons) {
+    ui.qualityButtons.forEach((button) => {
+      button.addEventListener('click', () => {
+        const mode = button.dataset.qualityMode;
+        if (mode && QUALITY_PROFILES[mode]) {
+          applyQualityMode(mode);
+        }
+      });
+    });
+  }
+
+  if (ui.doorControls) {
+    ui.doorControls.addEventListener('click', handleDoorControlClick);
+  }
+
   ui.chassisTransparencyRange.addEventListener('input', () => {
     const transparency = Number(ui.chassisTransparencyRange.value) / 100;
     setChassisOpacity(1 - transparency);
@@ -2927,14 +4136,22 @@ function handleCustomModuleSubmit(event) {
 }
 
 function onResize() {
-  renderer.setSize(getViewportWidth(), getViewportHeight());
+  const width = getViewportWidth();
+  const height = getViewportHeight();
+  renderer.setSize(width, height);
   camera.aspect = getViewportRatio();
   camera.updateProjectionMatrix();
+  updateComposerSize(width, height);
+  updateLineMaterialsResolution(width, height);
 }
 
 function animate() {
   requestAnimationFrame(animate);
-  renderer.render(scene, camera);
+  if (postProcessingEnabled && composer) {
+    composer.render();
+  } else {
+    renderer.render(scene, camera);
+  }
 }
 
 function applyChassis(chassis) {
@@ -2956,11 +4173,19 @@ function applyChassis(chassis) {
     state.chassisMesh.material.dispose();
   }
 
-  const geometry = new THREE.BoxGeometry(state.chassisData.width, state.chassisData.height, state.chassisData.length);
-  const material = new THREE.MeshStandardMaterial({
-    color: state.chassisData.color,
-    metalness: 0.4,
-    roughness: 0.5,
+  const chassisRadius = THREE.MathUtils.clamp(
+    Math.min(state.chassisData.width, state.chassisData.height, state.chassisData.length) * 0.08,
+    0.02,
+    0.12
+  );
+  const geometry = new RoundedBoxGeometry(
+    state.chassisData.width,
+    state.chassisData.height,
+    state.chassisData.length,
+    chassisRadius,
+    4
+  );
+  const material = getPhysicalMaterial(state.chassisData.color ?? RAL_COLORS.chassis, 'paintedMetal', {
     transparent: state.chassisOpacity < 1,
     opacity: state.chassisOpacity,
     depthWrite: state.chassisOpacity >= 0.999
@@ -2970,6 +4195,8 @@ function applyChassis(chassis) {
   mesh.name = 'chassis';
   mesh.castShadow = true;
   mesh.receiveShadow = true;
+  const edges = createEdgeLines(geometry, 0x0d141d, 1.4);
+  mesh.add(edges);
 
   chassisGroup.add(mesh);
   state.chassisMesh = mesh;
@@ -3054,19 +4281,48 @@ function addModuleInstance(moduleId, options = {}) {
   const definition = moduleCatalog.find((m) => m.id === moduleId) || fallbackDefinition;
   if (!definition) return null;
 
-  const { skipSelect = false, skipHistory = false, skipAnalysis = false } = options;
-  const instanceOptions = { ...options };
-  delete instanceOptions.skipSelect;
-  delete instanceOptions.skipHistory;
-  delete instanceOptions.skipAnalysis;
-  delete instanceOptions.definition;
+  const { mesh, color, doors } = createModuleMesh(definition);
 
-  const instance = createModuleInstance(definition, instanceOptions);
-  if (!instance) return null;
+  const containsFluid = Boolean(definition.containsFluid);
+  const initialFill = containsFluid ? Math.min(100, Math.max(0, definition.defaultFill ?? 0)) : 0;
+  const instance = {
+    id: `module-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    definitionId: moduleId,
+    type: definition.type,
+    name: definition.name,
+    mesh,
+    shape: normalizeModuleShape(definition.shape),
+    fill: initialFill,
+    massEmpty: definition.massEmpty,
+    fluidVolume: containsFluid ? definition.fluidVolume : 0,
+    density: containsFluid ? definition.density : 0,
+    containsFluid,
+    size: { ...definition.size },
+    color,
+    isCustom: Boolean(definition.isCustom),
+    libraryId: definition.libraryId,
+    libraryName: definition.libraryName,
+    librarySource: definition.librarySource,
+    libraryLicense: definition.libraryLicense,
+    libraryWebsite: definition.libraryWebsite,
+    labelSprite: null,
+    doors: Array.isArray(doors) ? doors.map((door) => ({
+      id: door.id,
+      label: door.label,
+      type: door.type,
+      config: door.config,
+      group: door.group,
+      open: false,
+      progress: 0,
+      alert: false,
+      isAnimating: false
+    })) : []
+  };
 
   scene.add(instance.mesh);
   state.modules.push(instance);
-  clampToBounds(instance.mesh.position, instance);
+  instance.doors.forEach((door) => applyDoorTransform(instance, door));
+  clampToBounds(mesh.position, instance);
   syncModuleState(instance);
   updateModuleLabel(instance);
   if (skipSelect) {
@@ -3087,11 +4343,7 @@ function addModuleInstance(moduleId, options = {}) {
 function selectModule(instance) {
   state.selected = instance;
   state.modules.forEach((mod) => {
-    mod.mesh.children.forEach((child) => {
-      if (child.material && child.material.opacity !== undefined) {
-        child.material.opacity = mod === instance ? 0.85 : 0.4;
-      }
-    });
+    setModuleHighlight(mod, mod === instance);
   });
   updateModuleList();
   updateSelectionDetails();
@@ -3127,6 +4379,8 @@ function updateSelectionDetails() {
     if (ui.detailLibrarySourceRow) ui.detailLibrarySourceRow.classList.add('hidden');
     if (ui.detailLibraryLicenseRow) ui.detailLibraryLicenseRow.classList.add('hidden');
     if (ui.detailLibraryWebsiteRow) ui.detailLibraryWebsiteRow.classList.add('hidden');
+    updateDoorUi();
+    updateToleranceInfo(null);
     return;
   }
   ui.detailName.textContent = mod.name;
@@ -3170,6 +4424,8 @@ function updateSelectionDetails() {
       ui.detailLibraryWebsiteRow.classList.add('hidden');
     }
   }
+  updateDoorUi();
+  updateToleranceInfo(mod);
 }
 
 function updateModuleList() {
@@ -3186,6 +4442,10 @@ function updateModuleList() {
 }
 
 function onPointerDown(event) {
+  if (measurementState.active && event.button === 0 && !event.ctrlKey) {
+    addMeasurementPoint(event);
+    return;
+  }
   if (event.button === 2 || event.ctrlKey) {
     orbitState.active = true;
     orbitState.pointer.set(event.clientX, event.clientY);
@@ -3736,6 +4996,15 @@ function pasteModuleFromClipboard() {
 }
 
 function onKeyDown(event) {
+  if (event.code === 'KeyM') {
+    event.preventDefault();
+    toggleMeasurementMode();
+    return;
+  }
+  if (event.code === 'Escape' && measurementState.active) {
+    toggleMeasurementMode();
+    return;
+  }
   if (event.code === 'Delete' && state.selected) {
     removeModule(state.selected);
     return;
@@ -3855,6 +5124,8 @@ function updateAnalysis(forceModal = false) {
   ui.analysisRear.textContent = `${analysis.rearLoad.toFixed(0)} kg`;
   ui.analysisMargin.textContent = `${analysis.margin.toFixed(0)} kg`;
 
+  updateCogVisual(analysis);
+  updateAxleIndicators(analysis);
   ui.indicatorPtac.className = 'indicator';
   ui.indicatorWalkway.className = 'indicator';
   ui.indicatorErrors.className = 'indicator';
@@ -3922,6 +5193,9 @@ function resetScene() {
   updateModuleList();
   updateSelectionDetails();
   updateAnalysis();
+  measurementState.active = false;
+  clearMeasurementVisuals();
+  updateDoorUi();
   pushHistory();
 }
 
@@ -3960,8 +5234,14 @@ function serializeState() {
       libraryWebsite: mod.libraryWebsite,
       isCustom: mod.isCustom,
       position: mod.mesh.position.toArray(),
-      rotation: [mod.mesh.rotation.x, mod.mesh.rotation.y, mod.mesh.rotation.z],
-      rotationY: mod.mesh.rotation.y
+      rotationY: mod.mesh.rotation.y,
+      doors: Array.isArray(mod.doors)
+        ? mod.doors.map((door) => ({
+            id: door.id,
+            open: door.open,
+            progress: door.progress
+          }))
+        : []
     }))
   };
   if (state.chassisData && state.chassisData.isCustom) {
@@ -4073,8 +5353,15 @@ function restoreState(data) {
     const baseColor = item.color !== undefined ? item.color : (definition.color !== undefined ? definition.color : 0x777777);
     const resolvedShape = normalizeModuleShape(item.shape || definition.shape);
     const resolvedSize = { ...definition.size, ...size };
-    const positionArray = item.position && item.position.length === 3 ? item.position : [0, resolvedSize.y / 2, 0];
-    const position = new THREE.Vector3().fromArray(positionArray);
+    const { mesh, doors } = createModuleMesh({
+      ...definition,
+      shape: resolvedShape,
+      size: resolvedSize,
+      color: baseColor
+    });
+    const positionArray = item.position && item.position.length === 3 ? item.position : [0, size.y / 2, 0];
+    mesh.position.fromArray(positionArray);
+    mesh.rotation.y = item.rotationY || 0;
     const containsFluid = item.containsFluid !== undefined ? item.containsFluid : definition.containsFluid;
     addModuleInstance(definition.id, {
       definition,
@@ -4094,12 +5381,32 @@ function restoreState(data) {
       librarySource: definition.librarySource,
       libraryLicense: definition.libraryLicense,
       libraryWebsite: definition.libraryWebsite,
-      isCustom: item.isCustom !== undefined ? item.isCustom : Boolean(definition.isCustom),
-      shape: resolvedShape,
-      skipSelect: true,
-      skipHistory: true,
-      skipAnalysis: true
+      labelSprite: null,
+      doors: Array.isArray(doors) ? doors.map((door) => ({
+        id: door.id,
+        label: door.label,
+        type: door.type,
+        config: door.config,
+        group: door.group,
+        open: item.doors?.find((d) => d.id === door.id)?.open ?? false,
+        progress: item.doors?.find((d) => d.id === door.id)?.progress ?? 0,
+      alert: false
+    })) : []
+    };
+    instance.doors.forEach((door) => {
+      const saved = (item.doors || []).find((entry) => entry.id === door.id);
+      if (saved) {
+        door.open = Boolean(saved.open);
+        const target = saved.progress !== undefined ? saved.progress : (door.open ? 1 : 0);
+        door.progress = THREE.MathUtils.clamp(target, 0, 1);
+      }
+      door.isAnimating = false;
+      applyDoorTransform(instance, door);
     });
+    syncModuleState(instance);
+    scene.add(mesh);
+    updateModuleLabel(instance);
+    state.modules.push(instance);
   });
 
   relocateModulesInsideBounds();
