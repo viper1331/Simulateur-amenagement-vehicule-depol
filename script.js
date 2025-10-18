@@ -186,6 +186,7 @@ const moduleCatalog = [
 ];
 
 const MODULE_SHAPES = ['box', 'cylinder'];
+const DEFAULT_MAGNET_DISTANCE = 0.15;
 
 function normalizeModuleShape(value) {
   if (!value && value !== 0) {
@@ -807,6 +808,9 @@ const state = {
   walkwayVisible: true,
   walkwayOffsetX: 0,
   walkwayOffsetZ: 0,
+  modulesSolid: false,
+  magnetismEnabled: false,
+  magnetSnapDistance: DEFAULT_MAGNET_DISTANCE,
   modules: [],
   selected: null,
   mode: 'translate',
@@ -965,6 +969,7 @@ const WALKWAY_THICKNESS = 0.05;
 const MIN_WALKWAY_WIDTH = 0.4;
 const WALKWAY_SIDE_CLEARANCE = 0.05;
 const WALKWAY_END_CLEARANCE = 0.2;
+const COLLISION_EPSILON = 0.01;
 const MIN_USABLE_WIDTH = 0.5;
 const MIN_USABLE_LENGTH = 1.0;
 const HANDLE_IDLE_COLOR = 0xff8c42;
@@ -2694,6 +2699,177 @@ function moduleFootprintHalfExtents(mod) {
   };
 }
 
+function computeModuleBounds(center, halfX, halfZ) {
+  return {
+    minX: center.x - halfX,
+    maxX: center.x + halfX,
+    minZ: center.z - halfZ,
+    maxZ: center.z + halfZ
+  };
+}
+
+function enforceWalkwayClearance(target, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ) {
+  const walkway = getWalkwayBounds();
+  if (!walkway) return;
+
+  const bounds = computeModuleBounds(target, halfX, halfZ);
+  const overlapX = Math.min(bounds.maxX, walkway.maxX) - Math.max(bounds.minX, walkway.minX);
+  const overlapZ = Math.min(bounds.maxZ, walkway.maxZ) - Math.max(bounds.minZ, walkway.minZ);
+
+  if (overlapX > 0 && overlapZ > 0) {
+    const candidates = [];
+
+    const leftLimit = walkway.minX - halfX;
+    if (leftLimit >= clampMinX - 1e-6) {
+      candidates.push({ axis: 'x', value: leftLimit });
+    }
+
+    const rightLimit = walkway.maxX + halfX;
+    if (rightLimit <= clampMaxX + 1e-6) {
+      candidates.push({ axis: 'x', value: rightLimit });
+    }
+
+    const frontLimit = walkway.minZ - halfZ;
+    if (frontLimit >= clampMinZ - 1e-6) {
+      candidates.push({ axis: 'z', value: frontLimit });
+    }
+
+    const backLimit = walkway.maxZ + halfZ;
+    if (backLimit <= clampMaxZ + 1e-6) {
+      candidates.push({ axis: 'z', value: backLimit });
+    }
+
+    if (candidates.length > 0) {
+      let best = candidates[0];
+      let bestDistance = Math.abs((best.axis === 'x' ? target.x : target.z) - best.value);
+      for (let i = 1; i < candidates.length; i++) {
+        const candidate = candidates[i];
+        const distance = Math.abs((candidate.axis === 'x' ? target.x : target.z) - candidate.value);
+        if (distance < bestDistance) {
+          best = candidate;
+          bestDistance = distance;
+        }
+      }
+      if (best.axis === 'x') {
+        target.x = THREE.MathUtils.clamp(best.value, clampMinX, clampMaxX);
+      } else {
+        target.z = THREE.MathUtils.clamp(best.value, clampMinZ, clampMaxZ);
+      }
+    } else {
+      target.x = target.x <= walkway.centerX ? clampMinX : clampMaxX;
+    }
+  }
+}
+
+function addMagnetCandidate(candidates, newValue, currentValue, clampMin, clampMax) {
+  if (!Number.isFinite(newValue)) return;
+  if (newValue < clampMin - 1e-6 || newValue > clampMax + 1e-6) return;
+  const delta = newValue - currentValue;
+  if (Math.abs(delta) < 1e-4) return;
+  candidates.push(delta);
+}
+
+function pickMagnetDelta(candidates, threshold) {
+  let bestDelta = 0;
+  let bestAbs = threshold + 1;
+  for (const delta of candidates) {
+    if (!Number.isFinite(delta)) continue;
+    const absDelta = Math.abs(delta);
+    if (absDelta > 0 && absDelta <= threshold && absDelta < bestAbs) {
+      bestDelta = delta;
+      bestAbs = absDelta;
+    }
+  }
+  return bestAbs <= threshold ? bestDelta : 0;
+}
+
+function applyModuleMagnetism(target, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ) {
+  if (!state.magnetismEnabled) return;
+  const threshold = Number.isFinite(state.magnetSnapDistance)
+    ? Math.max(state.magnetSnapDistance, 0)
+    : DEFAULT_MAGNET_DISTANCE;
+  if (threshold <= 0) return;
+
+  const walkway = getWalkwayBounds();
+  const magnetCandidatesX = [];
+  const magnetCandidatesZ = [];
+
+  addMagnetCandidate(magnetCandidatesX, clampMinX, target.x, clampMinX, clampMaxX);
+  addMagnetCandidate(magnetCandidatesX, clampMaxX, target.x, clampMinX, clampMaxX);
+  addMagnetCandidate(magnetCandidatesZ, clampMinZ, target.z, clampMinZ, clampMaxZ);
+  addMagnetCandidate(magnetCandidatesZ, clampMaxZ, target.z, clampMinZ, clampMaxZ);
+
+  if (walkway) {
+    addMagnetCandidate(magnetCandidatesX, walkway.centerX, target.x, clampMinX, clampMaxX);
+    addMagnetCandidate(magnetCandidatesX, walkway.maxX + halfX, target.x, clampMinX, clampMaxX);
+    addMagnetCandidate(magnetCandidatesX, walkway.minX - halfX, target.x, clampMinX, clampMaxX);
+    addMagnetCandidate(magnetCandidatesZ, walkway.centerZ, target.z, clampMinZ, clampMaxZ);
+    addMagnetCandidate(magnetCandidatesZ, walkway.maxZ + halfZ, target.z, clampMinZ, clampMaxZ);
+    addMagnetCandidate(magnetCandidatesZ, walkway.minZ - halfZ, target.z, clampMinZ, clampMaxZ);
+  }
+
+  state.modules.forEach((other) => {
+    if (other === module || !other.mesh) return;
+    const { halfX: otherHalfX, halfZ: otherHalfZ } = moduleFootprintHalfExtents(other);
+    const otherPos = other.mesh.position;
+    addMagnetCandidate(magnetCandidatesX, otherPos.x, target.x, clampMinX, clampMaxX);
+    addMagnetCandidate(magnetCandidatesZ, otherPos.z, target.z, clampMinZ, clampMaxZ);
+
+    const otherMinX = otherPos.x - otherHalfX;
+    const otherMaxX = otherPos.x + otherHalfX;
+    const otherMinZ = otherPos.z - otherHalfZ;
+    const otherMaxZ = otherPos.z + otherHalfZ;
+
+    addMagnetCandidate(magnetCandidatesX, otherMaxX + halfX, target.x, clampMinX, clampMaxX);
+    addMagnetCandidate(magnetCandidatesX, otherMinX - halfX, target.x, clampMinX, clampMaxX);
+    addMagnetCandidate(magnetCandidatesZ, otherMaxZ + halfZ, target.z, clampMinZ, clampMaxZ);
+    addMagnetCandidate(magnetCandidatesZ, otherMinZ - halfZ, target.z, clampMinZ, clampMaxZ);
+  });
+
+  const deltaX = pickMagnetDelta(magnetCandidatesX, threshold);
+  if (deltaX !== 0) {
+    target.x = THREE.MathUtils.clamp(target.x + deltaX, clampMinX, clampMaxX);
+  }
+  const deltaZ = pickMagnetDelta(magnetCandidatesZ, threshold);
+  if (deltaZ !== 0) {
+    target.z = THREE.MathUtils.clamp(target.z + deltaZ, clampMinZ, clampMaxZ);
+  }
+}
+
+function enforceSolidCollisions(target, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ) {
+  if (!state.modulesSolid) return;
+  const maxIterations = Math.max(1, state.modules.length);
+  for (let iteration = 0; iteration < maxIterations; iteration++) {
+    let resolved = false;
+    for (const other of state.modules) {
+      if (other === module || !other.mesh) continue;
+      const { halfX: otherHalfX, halfZ: otherHalfZ } = moduleFootprintHalfExtents(other);
+      const otherPos = other.mesh.position;
+      const otherBounds = computeModuleBounds(otherPos, otherHalfX, otherHalfZ);
+      const targetBounds = computeModuleBounds(target, halfX, halfZ);
+      const overlapX = Math.min(targetBounds.maxX, otherBounds.maxX) - Math.max(targetBounds.minX, otherBounds.minX);
+      const overlapZ = Math.min(targetBounds.maxZ, otherBounds.maxZ) - Math.max(targetBounds.minZ, otherBounds.minZ);
+      if (overlapX > 0 && overlapZ > 0) {
+        if (overlapX < overlapZ) {
+          const direction = target.x >= otherPos.x ? 1 : -1;
+          target.x += direction * (overlapX + COLLISION_EPSILON);
+          target.x = THREE.MathUtils.clamp(target.x, clampMinX, clampMaxX);
+        } else {
+          const direction = target.z >= otherPos.z ? 1 : -1;
+          target.z += direction * (overlapZ + COLLISION_EPSILON);
+          target.z = THREE.MathUtils.clamp(target.z, clampMinZ, clampMaxZ);
+        }
+        enforceWalkwayClearance(target, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ);
+        resolved = true;
+        break;
+      }
+    }
+    if (!resolved) {
+      break;
+    }
+  }
+}
+
 function clampToBounds(target, module) {
   if (!state.chassisData) return;
   const { halfX, halfZ } = moduleFootprintHalfExtents(module);
@@ -2705,64 +2881,13 @@ function clampToBounds(target, module) {
   target.x = THREE.MathUtils.clamp(target.x, clampMinX, clampMaxX);
   target.z = THREE.MathUtils.clamp(target.z, clampMinZ, clampMaxZ);
 
-  const walkway = getWalkwayBounds();
-  const moduleMinX = target.x - halfX;
-  const moduleMaxX = target.x + halfX;
-  const moduleMinZ = target.z - halfZ;
-  const moduleMaxZ = target.z + halfZ;
-  const overlapX = Math.min(moduleMaxX, walkway.maxX) - Math.max(moduleMinX, walkway.minX);
-  const overlapZ = Math.min(moduleMaxZ, walkway.maxZ) - Math.max(moduleMinZ, walkway.minZ);
-
-  if (overlapX > 0 && overlapZ > 0) {
-    const candidates = [];
-
-    const leftLimit = walkway.minX - halfX;
-    if (leftLimit >= clampMinX) {
-      candidates.push({ axis: 'x', value: leftLimit });
-    }
-
-    const rightLimit = walkway.maxX + halfX;
-    if (rightLimit <= clampMaxX) {
-      candidates.push({ axis: 'x', value: rightLimit });
-    }
-
-    const frontLimit = walkway.minZ - halfZ;
-    if (frontLimit >= clampMinZ) {
-      candidates.push({ axis: 'z', value: frontLimit });
-    }
-
-    const backLimit = walkway.maxZ + halfZ;
-    if (backLimit <= clampMaxZ) {
-      candidates.push({ axis: 'z', value: backLimit });
-    }
-
-    if (candidates.length > 0) {
-      let best = candidates[0];
-      let bestDistance = best.axis === 'x'
-        ? Math.abs(target.x - best.value)
-        : Math.abs(target.z - best.value);
-      for (let i = 1; i < candidates.length; i++) {
-        const candidate = candidates[i];
-        const distance = candidate.axis === 'x'
-          ? Math.abs(target.x - candidate.value)
-          : Math.abs(target.z - candidate.value);
-        if (distance < bestDistance) {
-          best = candidate;
-          bestDistance = distance;
-        }
-      }
-      if (best.axis === 'x') {
-        target.x = best.value;
-      } else {
-        target.z = best.value;
-      }
-    } else {
-      target.x = target.x <= walkway.centerX ? clampMinX : clampMaxX;
-    }
-  }
+  applyModuleMagnetism(target, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ);
+  enforceWalkwayClearance(target, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ);
+  enforceSolidCollisions(target, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ);
 
   target.x = THREE.MathUtils.clamp(target.x, clampMinX, clampMaxX);
   target.z = THREE.MathUtils.clamp(target.z, clampMinZ, clampMaxZ);
+  enforceWalkwayClearance(target, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ);
 
   const halfHeight = module.size.y / 2;
   target.y = THREE.MathUtils.clamp(target.y, workspaceBounds.min.y + halfHeight, workspaceBounds.max.y - halfHeight);
@@ -2779,6 +2904,19 @@ function relocateModulesInsideBounds() {
     syncModuleState(mod);
   });
   updateSelectionDetails();
+}
+
+function separateOverlappingModules() {
+  if (!state.modulesSolid) return;
+  state.modules.forEach((mod) => {
+    if (!mod.mesh) return;
+    const target = mod.mesh.position.clone();
+    clampToBounds(target, mod);
+    mod.mesh.position.copy(target);
+    syncModuleState(mod);
+  });
+  updateSelectionDetails();
+  updateAnalysis();
 }
 
 function onKeyDown(event) {
@@ -2973,6 +3111,8 @@ function serializeState() {
     walkwayVisible: state.walkwayVisible,
     walkwayOffsetX: state.walkwayOffsetX,
     walkwayOffsetZ: state.walkwayOffsetZ,
+    modulesSolid: state.modulesSolid,
+    magnetismEnabled: state.magnetismEnabled,
     modules: state.modules.map((mod) => ({
       id: mod.definitionId,
       type: mod.type,
@@ -3105,6 +3245,9 @@ function restoreState(data) {
   });
 
   relocateModulesInsideBounds();
+  if (state.modulesSolid) {
+    separateOverlappingModules();
+  }
   updateModuleList();
   selectModule(null);
   updateAnalysis();
