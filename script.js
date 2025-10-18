@@ -1,5 +1,51 @@
 import * as THREE from './libs/three.module.js';
 
+const DEBUG_LOGGING = true;
+
+const logger = (() => {
+  const prefix = '[Simulateur]';
+  const timestamp = () => new Date().toISOString();
+  const buildMessage = (level, message) => `${prefix} [${level}] ${timestamp()} - ${message}`;
+  const createPrinter = (method, level) => (message, context) => {
+    if (!DEBUG_LOGGING) return;
+    const formatted = buildMessage(level, message);
+    if (context !== undefined) {
+      console[method](formatted, context);
+    } else {
+      console[method](formatted);
+    }
+  };
+  return {
+    debug: createPrinter('debug', 'DEBUG'),
+    info: createPrinter('info', 'INFO'),
+    warn: createPrinter('warn', 'WARN'),
+    error: createPrinter('error', 'ERROR'),
+    group(message) {
+      if (!DEBUG_LOGGING) return;
+      console.group(buildMessage('GROUP', message));
+    },
+    groupEnd() {
+      if (!DEBUG_LOGGING) return;
+      console.groupEnd();
+    }
+  };
+})();
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('error', (event) => {
+    logger.error('Erreur non interceptée', {
+      message: event.message,
+      source: event.filename,
+      line: event.lineno,
+      column: event.colno,
+      error: event.error
+    });
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    logger.error('Promesse non gérée', { reason: event.reason });
+  });
+}
+
 const mmToM = (value) => (Number.isFinite(value) ? value / 1000 : null);
 const mToMm = (value) => (Number.isFinite(value) ? value * 1000 : null);
 const DEFAULT_SNAP_STEP = 0.001;
@@ -390,6 +436,15 @@ function sanitizeChassisDefinition(definition) {
     color: definition.color !== undefined ? definition.color : 0x8d939c,
     isCustom: definition.isCustom !== undefined ? definition.isCustom : true
   };
+  logger.debug('Sanitisation du châssis terminée', {
+    id: sanitized.id,
+    name: sanitized.name,
+    dimensions: {
+      length: sanitized.length,
+      width: sanitized.width,
+      height: sanitized.height
+    }
+  });
   return sanitized;
 }
 
@@ -517,6 +572,13 @@ function sanitizeModuleDefinition(definition) {
     containsFluid,
     isCustom: definition.isCustom !== undefined ? definition.isCustom : true
   };
+  logger.debug('Sanitisation du module terminée', {
+    id: sanitized.id,
+    name: sanitized.name,
+    type: sanitized.type,
+    shape: sanitized.shape,
+    containsFluid: sanitized.containsFluid
+  });
   return sanitized;
 }
 
@@ -528,6 +590,11 @@ function addChassisDefinition(definition) {
   } else {
     chassisCatalog.push(sanitized);
   }
+  logger.info('Définition de châssis enregistrée', {
+    id: sanitized.id,
+    name: sanitized.name,
+    miseAJour: index !== -1
+  });
   populateChassisOptions(sanitized.id);
   return sanitized;
 }
@@ -540,6 +607,11 @@ function addModuleDefinition(definition) {
   } else {
     moduleCatalog.push(sanitized);
   }
+  logger.info('Définition de module enregistrée', {
+    id: sanitized.id,
+    name: sanitized.name,
+    miseAJour: index !== -1
+  });
   populateModuleButtons();
   return moduleCatalog[index !== -1 ? index : moduleCatalog.length - 1];
 }
@@ -1444,6 +1516,7 @@ function updateHandleDrag(event) {
 }
 
 function initScene() {
+  logger.info('Initialisation de la scène 3D');
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0c12);
 
@@ -1456,6 +1529,10 @@ function initScene() {
   renderer.domElement.style.touchAction = 'none';
   document.getElementById('canvas-container').appendChild(renderer.domElement);
   renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
+  logger.debug('Renderer initialisé', {
+    pixelRatio: renderer.getPixelRatio(),
+    isWebGL2: renderer.capabilities.isWebGL2
+  });
 
   hemiLight = new THREE.HemisphereLight(0xddeeff, 0x202328, 0.6);
   scene.add(hemiLight);
@@ -1501,6 +1578,7 @@ function initScene() {
 
   updateCameraFromOrbit();
   animate();
+  logger.info('Scène 3D initialisée');
 }
 
 function getViewportWidth() {
@@ -1697,6 +1775,7 @@ function updateWalkway() {
 }
 
 function initUI() {
+  logger.info('Initialisation de l\'interface utilisateur');
   ui.chassisSelect = document.getElementById('chassis-select');
   ui.chassisPtac = document.getElementById('chassis-ptac');
   ui.chassisWheelbase = document.getElementById('chassis-wheelbase');
@@ -1788,6 +1867,9 @@ function initUI() {
   syncChassisTransparencyControls();
 
   bindUIEvents();
+  logger.debug('Interface utilisateur initialisée', {
+    elementsSuivis: Object.keys(ui).length
+  });
 }
 
 function populateChassisOptions(preferredId) {
@@ -2381,6 +2463,10 @@ function animate() {
 }
 
 function applyChassis(chassis) {
+  logger.info('Application d\'un châssis', {
+    id: chassis?.id,
+    name: chassis?.name
+  });
   const spatial = computeChassisSpatialMetrics(chassis);
   state.chassisData = {
     ...chassis,
@@ -2430,6 +2516,13 @@ function applyChassis(chassis) {
   resetOrbitToChassis();
   relocateModulesInsideBounds();
   updateAnalysis();
+  logger.debug('Châssis appliqué et scène mise à jour', {
+    dimensions: {
+      length: state.chassisData.length,
+      width: state.chassisData.width,
+      height: state.chassisData.height
+    }
+  });
 }
 
 function updateWorkspaceBounds(chassis) {
@@ -2519,6 +2612,13 @@ function addModuleInstance(moduleId) {
 
   scene.add(mesh);
   state.modules.push(instance);
+  logger.info('Module ajouté à la scène', {
+    definitionId: moduleId,
+    instanceId: instance.id,
+    position: mesh.position.toArray(),
+    containsFluid,
+    remplissageInitial: initialFill
+  });
   clampToBounds(mesh.position, instance);
   syncModuleState(instance);
   updateModuleLabel(instance);
@@ -3056,6 +3156,10 @@ function removeModule(mod) {
     mod.mesh.geometry.dispose();
     mod.mesh.material.dispose();
     state.modules.splice(index, 1);
+    logger.info('Module retiré de la scène', {
+      instanceId: mod.id,
+      definitionId: mod.definitionId
+    });
     if (state.selected && state.selected.id === mod.id) {
       state.selected = null;
       updateSelectionDetails();
@@ -3205,6 +3309,10 @@ function resetScene() {
 }
 
 function serializeState() {
+  logger.debug('Sérialisation de l\'état', {
+    modules: state.modules.length,
+    chassisId: state.chassisData ? state.chassisData.id : null
+  });
   const serialized = {
     chassisId: state.chassisData ? state.chassisData.id : null,
     chassisOpacity: state.chassisOpacity,
@@ -3239,10 +3347,18 @@ function serializeState() {
   if (state.chassisData && state.chassisData.isCustom) {
     serialized.chassisDefinition = { ...state.chassisData };
   }
+  logger.debug('État sérialisé', {
+    modules: serialized.modules.length,
+    chassisId: serialized.chassisId
+  });
   return serialized;
 }
 
 function restoreState(data) {
+  logger.info('Restauration d\'un état sauvegardé', {
+    chassisId: data?.chassisId,
+    modules: data?.modules ? data.modules.length : 0
+  });
   let chassis = chassisCatalog.find((c) => c.id === data.chassisId) || null;
   if (!chassis && data.chassisDefinition) {
     const restored = addChassisDefinition({ ...data.chassisDefinition, isCustom: true });
@@ -3365,6 +3481,10 @@ function restoreState(data) {
   updateModuleList();
   selectModule(null);
   updateAnalysis();
+  logger.info('État restauré', {
+    modules: state.modules.length,
+    chassisId: state.chassisData ? state.chassisData.id : null
+  });
 }
 
 function handleExportJSON() {
@@ -3456,6 +3576,10 @@ function pushHistory() {
   history.undo.push(JSON.stringify(snapshot));
   if (history.undo.length > 50) history.undo.shift();
   history.redo = [];
+  logger.debug('État ajouté à l\'historique', {
+    undo: history.undo.length,
+    redo: history.redo.length
+  });
 }
 
 function undo() {
@@ -3464,6 +3588,10 @@ function undo() {
   history.redo.push(current);
   const previous = JSON.parse(history.undo[history.undo.length - 1]);
   restoreState(previous);
+  logger.info('Retour en arrière effectué', {
+    undo: history.undo.length,
+    redo: history.redo.length
+  });
 }
 
 function redo() {
@@ -3472,6 +3600,10 @@ function redo() {
   const data = JSON.parse(stateJson);
   history.undo.push(stateJson);
   restoreState(data);
+  logger.info('Rétablissement effectué', {
+    undo: history.undo.length,
+    redo: history.redo.length
+  });
 }
 
 function showModal(title, body) {
@@ -3497,10 +3629,12 @@ function confirmAction(title, message, onConfirm) {
 }
 
 function initApp() {
+  logger.info('Démarrage de l\'application');
   initScene();
   initUI();
   pushHistory();
   updateAnalysis();
+  logger.info('Application initialisée');
 }
 
 initApp();
