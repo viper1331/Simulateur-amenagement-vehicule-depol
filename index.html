@@ -281,7 +281,31 @@
         </section>
         <section>
           <h2>Modules</h2>
-          <p class="module-intro">Sélectionnez un module prêt à l'emploi ou créez vos propres équipements pour composer votre aménagement.</p>
+          <p class="module-intro">Sélectionnez un module prêt à l'emploi, importez une bibliothèque d'objets 3D ou créez vos propres équipements pour composer votre aménagement.</p>
+          <div class="module-library-tools">
+            <button id="btn-import-module-library" type="button" class="ghost">Importer une bibliothèque de modules</button>
+            <input type="file" id="module-library-input" accept=".json,.zip,.samlib" hidden>
+            <p class="module-library-help">Les bibliothèques peuvent être fournies au format JSON ou sous forme d'archives ZIP (fichiers SH3F de Sweet Home 3D). Décompressez les archives si nécessaire : le simulateur détecte automatiquement le descriptif JSON et ajoute les modules au catalogue.</p>
+            <div class="module-library-sources">
+              <h3>Sources de modèles 3D gratuits</h3>
+              <ul class="module-library-links">
+                <li><a href="https://www.sweethome3d.com/fr/importModels.jsp" target="_blank" rel="noreferrer noopener">Modèles 3D libres Sweet Home 3D</a> — plus de 1&nbsp;600 modules créés par la communauté.</li>
+                <li><a href="https://www.sweethome3d.com/fr/downloads/3DModels-Contributions-1.9.3.zip" target="_blank" rel="noreferrer noopener">Contributions 1.9.3</a> — 511 modèles (Licence Art Libre).</li>
+                <li><a href="https://www.sweethome3d.com/fr/downloads/3DModels-Scopia-1.9.3.zip" target="_blank" rel="noreferrer noopener">Scopia 1.9.3</a> — 500 modèles (Licence CC-BY).</li>
+                <li><a href="https://www.sweethome3d.com/fr/downloads/3DModels-BlendSwap-CC-0-1.9.3.zip" target="_blank" rel="noreferrer noopener">Blend Swap CC-0</a> — 175 modèles (Domaine public).</li>
+                <li><a href="https://www.sweethome3d.com/fr/creerBibliotheque.jsp" target="_blank" rel="noreferrer noopener">Éditeur de bibliothèque Sweet Home 3D</a> — créez vos propres fichiers SH3F.</li>
+                <li><a href="https://3dwarehouse.sketchup.com/" target="_blank" rel="noreferrer noopener">Trimble 3D Warehouse</a> — vaste catalogue Collada/KMZ (connexion Trimble requise).</li>
+                <li><a href="https://resources.blogscopia.com/" target="_blank" rel="noreferrer noopener">Resources.blogscopia</a> — modèles libres prêts à l'emploi.</li>
+                <li><a href="http://www.dodecahedronsoftware.com/dodecagon.html" target="_blank" rel="noreferrer noopener">Dodecagon</a> — bibliothèques variées (domaine public).</li>
+                <li><a href="https://archive3d.net/" target="_blank" rel="noreferrer noopener">Archive3D</a> — nombreuses ressources OBJ/3DS.</li>
+              </ul>
+              <p class="module-library-note">Respectez les licences (Art Libre, CC-BY, CC-0, domaine public, etc.) mentionnées par les auteurs lors de l'import.</p>
+            </div>
+            <div class="module-library-summary">
+              <h3>Bibliothèques disponibles</h3>
+              <ul id="module-library-list" class="module-library-list"></ul>
+            </div>
+          </div>
           <button id="btn-add-module" class="secondary" data-collapsed-label="Ajouter un module personnalisé" data-expanded-label="Masquer le formulaire">Ajouter un module personnalisé</button>
           <form id="module-form" class="inline-form is-collapsed">
             <div class="form-row">
@@ -418,6 +442,10 @@
               <input type="range" id="detail-fill" min="0" max="100" step="5">
               <span id="detail-fill-value">0%</span>
             </div>
+            <div class="detail hidden" data-detail-row="library"><span>Bibliothèque :</span><span id="detail-library">-</span></div>
+            <div class="detail hidden" data-detail-row="library-source"><span>Source :</span><span id="detail-library-source">-</span></div>
+            <div class="detail hidden" data-detail-row="library-license"><span>Licence :</span><span id="detail-library-license">-</span></div>
+            <div class="detail hidden" data-detail-row="library-website"><span>Site :</span><a id="detail-library-link" href="#" target="_blank" rel="noreferrer noopener">-</a></div>
             <div class="detail"><span>Position X (m) :</span><input type="number" id="detail-pos-x" step="0.001"></div>
             <div class="detail"><span>Position Y (m) :</span><input type="number" id="detail-pos-y" step="0.001"></div>
             <div class="detail"><span>Position Z (m) :</span><input type="number" id="detail-pos-z" step="0.001"></div>
