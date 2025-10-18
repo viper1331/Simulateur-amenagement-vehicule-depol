@@ -67,86 +67,206 @@
               <input id="chassis-front-axle" name="frontAxleOffset" type="number" min="0" step="0.01" required>
             </div>
             <div class="form-divider">Capacités</div>
-            <div class="form-row">
-              <label for="chassis-payload">Charge utile (kg)</label>
-              <input id="chassis-payload" name="payload" type="number" min="0" step="10">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-payload">Charge utile (kg)</label>
+                <label class="field-toggle" for="toggle-chassis-payload">
+                  <input type="checkbox" id="toggle-chassis-payload" data-field-toggle="chassis-payload">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-payload" name="payload" type="number" min="0" step="10" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-max-towable">Poids maxi remorquable freiné (kg)</label>
-              <input id="chassis-max-towable" name="maxTowableBraked" type="number" min="0" step="10">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-max-towable">Poids maxi remorquable freiné (kg)</label>
+                <label class="field-toggle" for="toggle-chassis-max-towable">
+                  <input type="checkbox" id="toggle-chassis-max-towable" data-field-toggle="chassis-max-towable">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-max-towable" name="maxTowableBraked" type="number" min="0" step="10" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-max-authorized">Poids maxi autorisé (kg)</label>
-              <input id="chassis-max-authorized" name="maxAuthorizedWeight" type="number" min="0" step="10">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-max-authorized">Poids maxi autorisé (kg)</label>
+                <label class="field-toggle" for="toggle-chassis-max-authorized">
+                  <input type="checkbox" id="toggle-chassis-max-authorized" data-field-toggle="chassis-max-authorized">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-max-authorized" name="maxAuthorizedWeight" type="number" min="0" step="10" disabled>
             </div>
             <div class="form-divider">Dimensions</div>
-            <div class="form-row">
-              <label for="chassis-overall-width-mirrors">Largeur hors tout avec rétroviseurs extérieurs (mm)</label>
-              <input id="chassis-overall-width-mirrors" name="overallWidthMirrors" type="number" min="0" step="1">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-overall-width-mirrors">Largeur hors tout avec rétroviseurs extérieurs (mm)</label>
+                <label class="field-toggle" for="toggle-chassis-overall-width-mirrors">
+                  <input type="checkbox" id="toggle-chassis-overall-width-mirrors" data-field-toggle="chassis-overall-width-mirrors">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-overall-width-mirrors" name="overallWidthMirrors" type="number" min="0" step="1" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-height-unladen">Hauteur à vide (mm)</label>
-              <input id="chassis-height-unladen" name="heightUnladen" type="number" min="0" step="1">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-height-unladen">Hauteur à vide (mm)</label>
+                <label class="field-toggle" for="toggle-chassis-height-unladen">
+                  <input type="checkbox" id="toggle-chassis-height-unladen" data-field-toggle="chassis-height-unladen">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-height-unladen" name="heightUnladen" type="number" min="0" step="1" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-ground-clearance">Garde au sol en charge (mm)</label>
-              <input id="chassis-ground-clearance" name="groundClearanceLoaded" type="number" min="0" step="1">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-ground-clearance">Garde au sol en charge (mm)</label>
+                <label class="field-toggle" for="toggle-chassis-ground-clearance">
+                  <input type="checkbox" id="toggle-chassis-ground-clearance" data-field-toggle="chassis-ground-clearance">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-ground-clearance" name="groundClearanceLoaded" type="number" min="0" step="1" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-floor-height">Hauteur seuil à vide (mm)</label>
-              <input id="chassis-floor-height" name="floorHeightUnladen" type="number" min="0" step="1">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-floor-height">Hauteur seuil à vide (mm)</label>
+                <label class="field-toggle" for="toggle-chassis-floor-height">
+                  <input type="checkbox" id="toggle-chassis-floor-height" data-field-toggle="chassis-floor-height">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-floor-height" name="floorHeightUnladen" type="number" min="0" step="1" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-overall-length-mm">Longueur hors tout (mm)</label>
-              <input id="chassis-overall-length-mm" name="overallLengthMM" type="number" min="0" step="1">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-overall-length-mm">Longueur hors tout (mm)</label>
+                <label class="field-toggle" for="toggle-chassis-overall-length-mm">
+                  <input type="checkbox" id="toggle-chassis-overall-length-mm" data-field-toggle="chassis-overall-length-mm">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-overall-length-mm" name="overallLengthMM" type="number" min="0" step="1" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-overall-width-mm">Largeur hors tout (mm)</label>
-              <input id="chassis-overall-width-mm" name="overallWidthMM" type="number" min="0" step="1">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-overall-width-mm">Largeur hors tout (mm)</label>
+                <label class="field-toggle" for="toggle-chassis-overall-width-mm">
+                  <input type="checkbox" id="toggle-chassis-overall-width-mm" data-field-toggle="chassis-overall-width-mm">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-overall-width-mm" name="overallWidthMM" type="number" min="0" step="1" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-overall-height-mm">Hauteur hors tout (mm)</label>
-              <input id="chassis-overall-height-mm" name="overallHeightMM" type="number" min="0" step="1">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-overall-height-mm">Hauteur hors tout (mm)</label>
+                <label class="field-toggle" for="toggle-chassis-overall-height-mm">
+                  <input type="checkbox" id="toggle-chassis-overall-height-mm" data-field-toggle="chassis-overall-height-mm">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-overall-height-mm" name="overallHeightMM" type="number" min="0" step="1" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-max-loading-length">Longueur de chargement maxi (mm)</label>
-              <input id="chassis-max-loading-length" name="maxLoadingLength" type="number" min="0" step="1">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-max-loading-length">Longueur de chargement maxi (mm)</label>
+                <label class="field-toggle" for="toggle-chassis-max-loading-length">
+                  <input type="checkbox" id="toggle-chassis-max-loading-length" data-field-toggle="chassis-max-loading-length">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-max-loading-length" name="maxLoadingLength" type="number" min="0" step="1" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-rear-overhang">Porte à faux arrière (mm)</label>
-              <input id="chassis-rear-overhang" name="rearOverhang" type="number" min="0" step="1">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-rear-overhang">Porte à faux arrière (mm)</label>
+                <label class="field-toggle" for="toggle-chassis-rear-overhang">
+                  <input type="checkbox" id="toggle-chassis-rear-overhang" data-field-toggle="chassis-rear-overhang">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-rear-overhang" name="rearOverhang" type="number" min="0" step="1" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-height-with-rack">Hauteur à vide avec galerie (mm)</label>
-              <input id="chassis-height-with-rack" name="heightWithRack" type="number" min="0" step="1">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-height-with-rack">Hauteur à vide avec galerie (mm)</label>
+                <label class="field-toggle" for="toggle-chassis-height-with-rack">
+                  <input type="checkbox" id="toggle-chassis-height-with-rack" data-field-toggle="chassis-height-with-rack">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-height-with-rack" name="heightWithRack" type="number" min="0" step="1" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-front-overhang">Porte à faux avant (mm)</label>
-              <input id="chassis-front-overhang" name="frontOverhang" type="number" min="0" step="1">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-front-overhang">Porte à faux avant (mm)</label>
+                <label class="field-toggle" for="toggle-chassis-front-overhang">
+                  <input type="checkbox" id="toggle-chassis-front-overhang" data-field-toggle="chassis-front-overhang">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-front-overhang" name="frontOverhang" type="number" min="0" step="1" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-rear-opening-height">Hauteur ouverture arrière (mm)</label>
-              <input id="chassis-rear-opening-height" name="rearOpeningHeight" type="number" min="0" step="1">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-rear-opening-height">Hauteur ouverture arrière (mm)</label>
+                <label class="field-toggle" for="toggle-chassis-rear-opening-height">
+                  <input type="checkbox" id="toggle-chassis-rear-opening-height" data-field-toggle="chassis-rear-opening-height">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-rear-opening-height" name="rearOpeningHeight" type="number" min="0" step="1" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-cargo-volume">Volume de chargement (m³)</label>
-              <input id="chassis-cargo-volume" name="cargoVolume" type="number" min="0" step="0.01">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-cargo-volume">Volume de chargement (m³)</label>
+                <label class="field-toggle" for="toggle-chassis-cargo-volume">
+                  <input type="checkbox" id="toggle-chassis-cargo-volume" data-field-toggle="chassis-cargo-volume">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-cargo-volume" name="cargoVolume" type="number" min="0" step="0.01" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-interior-width">Largeur intérieure entre passage de roues (mm)</label>
-              <input id="chassis-interior-width" name="interiorWidthWheelarches" type="number" min="0" step="1">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-interior-width">Largeur intérieure entre passage de roues (mm)</label>
+                <label class="field-toggle" for="toggle-chassis-interior-width">
+                  <input type="checkbox" id="toggle-chassis-interior-width" data-field-toggle="chassis-interior-width">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-interior-width" name="interiorWidthWheelarches" type="number" min="0" step="1" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-side-door-width">Largeur entrée porte latérale coulissante (mm)</label>
-              <input id="chassis-side-door-width" name="sideDoorEntryWidth" type="number" min="0" step="1">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-side-door-width">Largeur entrée porte latérale coulissante (mm)</label>
+                <label class="field-toggle" for="toggle-chassis-side-door-width">
+                  <input type="checkbox" id="toggle-chassis-side-door-width" data-field-toggle="chassis-side-door-width">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-side-door-width" name="sideDoorEntryWidth" type="number" min="0" step="1" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-rear-door-lower-width">Largeur d'entrée inférieure de porte(s) arrière(s) (mm)</label>
-              <input id="chassis-rear-door-lower-width" name="rearDoorLowerEntryWidth" type="number" min="0" step="1">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-rear-door-lower-width">Largeur d'entrée inférieure de porte(s) arrière(s) (mm)</label>
+                <label class="field-toggle" for="toggle-chassis-rear-door-lower-width">
+                  <input type="checkbox" id="toggle-chassis-rear-door-lower-width" data-field-toggle="chassis-rear-door-lower-width">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-rear-door-lower-width" name="rearDoorLowerEntryWidth" type="number" min="0" step="1" disabled>
             </div>
-            <div class="form-row">
-              <label for="chassis-interior-height">Hauteur intérieure sous pavillon (mm)</label>
-              <input id="chassis-interior-height" name="interiorHeight" type="number" min="0" step="1">
+            <div class="form-row optional">
+              <div class="field-header">
+                <label for="chassis-interior-height">Hauteur intérieure sous pavillon (mm)</label>
+                <label class="field-toggle" for="toggle-chassis-interior-height">
+                  <input type="checkbox" id="toggle-chassis-interior-height" data-field-toggle="chassis-interior-height">
+                  <span>Utiliser</span>
+                </label>
+              </div>
+              <input id="chassis-interior-height" name="interiorHeight" type="number" min="0" step="1" disabled>
             </div>
             <div class="form-row">
               <label for="chassis-color">Couleur</label>

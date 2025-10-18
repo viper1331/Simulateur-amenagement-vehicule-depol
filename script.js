@@ -314,6 +314,43 @@ function closeInlineForm(button, form, reset = false) {
   }
 }
 
+function initOptionalFieldToggles(form) {
+  if (!form) return;
+  const toggles = Array.from(form.querySelectorAll('[data-field-toggle]'));
+  const syncState = (toggle) => {
+    const targetId = toggle.dataset.fieldToggle;
+    if (!targetId) return;
+    const target = form.querySelector(`#${targetId}`);
+    if (!target) return;
+    const row = target.closest('.form-row');
+    const active = toggle.checked;
+    target.disabled = !active;
+    target.required = active;
+    if (row) {
+      row.classList.toggle('is-disabled', !active);
+    }
+    if (!active) {
+      target.dataset.cachedValue = target.value;
+    }
+    if (active && target.dataset.cachedValue !== undefined && target.value === '') {
+      target.value = target.dataset.cachedValue;
+    }
+  };
+
+  toggles.forEach((toggle) => {
+    toggle.addEventListener('change', () => syncState(toggle));
+    syncState(toggle);
+  });
+
+  form.addEventListener('reset', () => {
+    window.requestAnimationFrame(() => {
+      toggles.forEach((toggle) => {
+        syncState(toggle);
+      });
+    });
+  });
+}
+
 const state = {
   chassis: null,
   chassisMesh: null,
@@ -477,6 +514,8 @@ function initUI() {
 
   setFormCollapsed(ui.btnAddChassis, ui.chassisForm, true);
   setFormCollapsed(ui.btnAddModule, ui.moduleForm, true);
+
+  initOptionalFieldToggles(ui.chassisForm);
 
   const initialChassis = populateChassisOptions();
   if (initialChassis) {
