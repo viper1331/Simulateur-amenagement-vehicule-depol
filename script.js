@@ -803,6 +803,7 @@ const state = {
   showGrid: true,
   showGabarit: true,
   showUsableVolume: true,
+  showUsableBoundaries: true,
   showModuleLabels: true,
   walkwayWidth: 0.8,
   walkwayVisible: true,
@@ -942,6 +943,18 @@ function updateModuleLabelVisibility() {
   });
 }
 
+function updateUsableBoundaryVisibility() {
+  if (!usableVisualGroup) return;
+  usableVisualGroup.children.forEach((child) => {
+    const visualType = child.userData ? child.userData.visualType : null;
+    if (visualType === 'boundary') {
+      child.visible = state.showUsableVolume && state.showUsableBoundaries;
+    } else if (visualType === 'usable-volume' || visualType === 'usable-edges') {
+      child.visible = state.showUsableVolume;
+    }
+  });
+}
+
 function applyDisplayFilters() {
   if (grid) {
     grid.visible = state.showGrid;
@@ -961,6 +974,7 @@ function applyDisplayFilters() {
   if (usableHandleGroup) {
     usableHandleGroup.visible = state.showUsableVolume;
   }
+  updateUsableBoundaryVisibility();
   updateModuleLabelVisibility();
 }
 
@@ -1216,6 +1230,8 @@ function updateUsableVolumeVisuals() {
   const usableMesh = new THREE.Mesh(usableGeometry, usableMaterial);
   usableMesh.position.set(bounds.centerX, usableHeight / 2, bounds.centerZ);
   usableMesh.raycast = () => {};
+  usableMesh.userData.visualType = 'usable-volume';
+  usableMesh.visible = state.showUsableVolume;
   usableVisualGroup.add(usableMesh);
 
   const usableEdges = new THREE.LineSegments(
@@ -1224,6 +1240,8 @@ function updateUsableVolumeVisuals() {
   );
   usableEdges.position.copy(usableMesh.position);
   usableEdges.raycast = () => {};
+  usableEdges.userData.visualType = 'usable-edges';
+  usableEdges.visible = state.showUsableVolume;
   usableVisualGroup.add(usableEdges);
 
   const boundaryMaterial = new THREE.MeshBasicMaterial({
@@ -1249,6 +1267,8 @@ function updateUsableVolumeVisuals() {
     const sideMesh = new THREE.Mesh(sideGeom, boundaryMaterial.clone());
     sideMesh.position.set(-chassisHalfWidth + width / 2, chassisHeight / 2, 0);
     sideMesh.raycast = () => {};
+    sideMesh.userData.visualType = 'boundary';
+    sideMesh.visible = state.showUsableVolume && state.showUsableBoundaries;
     usableVisualGroup.add(sideMesh);
   }
   if (usableMaxX < chassisHalfWidth - 1e-3) {
@@ -1257,6 +1277,8 @@ function updateUsableVolumeVisuals() {
     const sideMesh = new THREE.Mesh(sideGeom, boundaryMaterial.clone());
     sideMesh.position.set(chassisHalfWidth - width / 2, chassisHeight / 2, 0);
     sideMesh.raycast = () => {};
+    sideMesh.userData.visualType = 'boundary';
+    sideMesh.visible = state.showUsableVolume && state.showUsableBoundaries;
     usableVisualGroup.add(sideMesh);
   }
   if (usableMinZ > -chassisHalfLength + 1e-3) {
@@ -1265,6 +1287,8 @@ function updateUsableVolumeVisuals() {
     const frontMesh = new THREE.Mesh(frontGeom, boundaryMaterial.clone());
     frontMesh.position.set(0, chassisHeight / 2, -chassisHalfLength + length / 2);
     frontMesh.raycast = () => {};
+    frontMesh.userData.visualType = 'boundary';
+    frontMesh.visible = state.showUsableVolume && state.showUsableBoundaries;
     usableVisualGroup.add(frontMesh);
   }
   if (usableMaxZ < chassisHalfLength - 1e-3) {
@@ -1273,6 +1297,8 @@ function updateUsableVolumeVisuals() {
     const rearMesh = new THREE.Mesh(rearGeom, boundaryMaterial.clone());
     rearMesh.position.set(0, chassisHeight / 2, chassisHalfLength - length / 2);
     rearMesh.raycast = () => {};
+    rearMesh.userData.visualType = 'boundary';
+    rearMesh.visible = state.showUsableVolume && state.showUsableBoundaries;
     usableVisualGroup.add(rearMesh);
   }
 
@@ -1282,12 +1308,15 @@ function updateUsableVolumeVisuals() {
     const topMesh = new THREE.Mesh(topGeom, boundaryMaterial.clone());
     topMesh.position.set(bounds.centerX, usableHeight + height / 2, bounds.centerZ);
     topMesh.raycast = () => {};
+    topMesh.userData.visualType = 'boundary';
+    topMesh.visible = state.showUsableVolume && state.showUsableBoundaries;
     usableVisualGroup.add(topMesh);
   }
 
   if (usableVisualGroup) {
     usableVisualGroup.visible = state.showUsableVolume;
   }
+  updateUsableBoundaryVisibility();
 }
 
 function intersectUsableHandles(event) {
@@ -1679,12 +1708,14 @@ function initUI() {
   ui.filterShowGrid = document.getElementById('filter-show-grid');
   ui.filterShowGabarit = document.getElementById('filter-show-gabarit');
   ui.filterShowUsable = document.getElementById('filter-show-usable');
+  ui.filterShowUsableBoundaries = document.getElementById('filter-show-usable-boundaries');
   ui.filterShowLabels = document.getElementById('filter-show-labels');
 
   if (ui.filterShowChassis) ui.filterShowChassis.checked = state.showChassis;
   if (ui.filterShowGrid) ui.filterShowGrid.checked = state.showGrid;
   if (ui.filterShowGabarit) ui.filterShowGabarit.checked = state.showGabarit;
   if (ui.filterShowUsable) ui.filterShowUsable.checked = state.showUsableVolume;
+  if (ui.filterShowUsableBoundaries) ui.filterShowUsableBoundaries.checked = state.showUsableBoundaries;
   if (ui.filterShowLabels) ui.filterShowLabels.checked = state.showModuleLabels;
 
   resetChassisFormState();
@@ -2014,6 +2045,14 @@ function bindUIEvents() {
   if (ui.filterShowUsable) {
     ui.filterShowUsable.addEventListener('change', () => {
       state.showUsableVolume = ui.filterShowUsable.checked;
+      applyDisplayFilters();
+      pushHistory();
+    });
+  }
+
+  if (ui.filterShowUsableBoundaries) {
+    ui.filterShowUsableBoundaries.addEventListener('change', () => {
+      state.showUsableBoundaries = ui.filterShowUsableBoundaries.checked;
       applyDisplayFilters();
       pushHistory();
     });
@@ -3106,6 +3145,7 @@ function serializeState() {
     showGrid: state.showGrid,
     showGabarit: state.showGabarit,
     showUsableVolume: state.showUsableVolume,
+    showUsableBoundaries: state.showUsableBoundaries,
     showModuleLabels: state.showModuleLabels,
     walkwayWidth: state.walkwayWidth,
     walkwayVisible: state.walkwayVisible,
@@ -3165,12 +3205,14 @@ function restoreState(data) {
   state.showGrid = data.showGrid !== undefined ? data.showGrid : true;
   state.showGabarit = data.showGabarit !== undefined ? data.showGabarit : true;
   state.showUsableVolume = data.showUsableVolume !== undefined ? data.showUsableVolume : true;
+  state.showUsableBoundaries = data.showUsableBoundaries !== undefined ? data.showUsableBoundaries : true;
   state.showModuleLabels = data.showModuleLabels !== undefined ? data.showModuleLabels : true;
 
   if (ui.filterShowChassis) ui.filterShowChassis.checked = state.showChassis;
   if (ui.filterShowGrid) ui.filterShowGrid.checked = state.showGrid;
   if (ui.filterShowGabarit) ui.filterShowGabarit.checked = state.showGabarit;
   if (ui.filterShowUsable) ui.filterShowUsable.checked = state.showUsableVolume;
+  if (ui.filterShowUsableBoundaries) ui.filterShowUsableBoundaries.checked = state.showUsableBoundaries;
   if (ui.filterShowLabels) ui.filterShowLabels.checked = state.showModuleLabels;
   applyDisplayFilters();
 
