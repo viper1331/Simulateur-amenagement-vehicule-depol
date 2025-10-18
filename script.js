@@ -81,6 +81,8 @@ const QUALITY_PROFILES = {
   }
 };
 
+const COLLAPSIBLE_STATE_KEY = 'sim-collapsible-panels';
+
 function getStoredQualityMode() {
   try {
     const saved = window.localStorage.getItem(QUALITY_STORAGE_KEY);
@@ -99,6 +101,64 @@ function storeQualityMode(mode) {
   } catch (error) {
     console.warn('Impossible de sauvegarder la qualité', error);
   }
+}
+
+function loadCollapsibleState() {
+  try {
+    const saved = window.localStorage.getItem(COLLAPSIBLE_STATE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed && typeof parsed === 'object') {
+        return parsed;
+      }
+    }
+  } catch (error) {
+    console.warn('Impossible de charger l\'état des panneaux', error);
+  }
+  return {};
+}
+
+function saveCollapsibleState(state) {
+  try {
+    window.localStorage.setItem(COLLAPSIBLE_STATE_KEY, JSON.stringify(state));
+  } catch (error) {
+    console.warn('Impossible d\'enregistrer l\'état des panneaux', error);
+  }
+}
+
+function initCollapsiblePanels() {
+  const savedState = loadCollapsibleState();
+  const sections = document.querySelectorAll('[data-collapsible]');
+  sections.forEach((section, index) => {
+    const toggle = section.querySelector('[data-collapse-toggle]');
+    const content = section.querySelector('.collapsible-content');
+    if (!toggle || !content) return;
+
+    let key = section.dataset.storageKey;
+    if (!key) {
+      key = `panel-${index}`;
+      section.dataset.storageKey = key;
+    }
+
+    if (!content.id) {
+      content.id = `${key}-content`;
+    }
+    toggle.setAttribute('aria-controls', content.id);
+
+    const defaultCollapsed = section.dataset.collapsed === 'true';
+    const storedValue = savedState[key];
+    const isCollapsed = typeof storedValue === 'boolean' ? storedValue : defaultCollapsed;
+    section.classList.toggle('is-collapsed', isCollapsed);
+    toggle.setAttribute('aria-expanded', (!isCollapsed).toString());
+
+    toggle.addEventListener('click', () => {
+      const nextCollapsed = !section.classList.contains('is-collapsed');
+      section.classList.toggle('is-collapsed', nextCollapsed);
+      toggle.setAttribute('aria-expanded', (!nextCollapsed).toString());
+      savedState[key] = nextCollapsed;
+      saveCollapsibleState(savedState);
+    });
+  });
 }
 
 let qualityMode = getStoredQualityMode();
@@ -3036,6 +3096,7 @@ function initUI() {
   initOptionalFieldToggles(ui.chassisForm);
   initOptionalFieldToggles(ui.moduleForm);
   initModuleFluidToggleDependencies();
+  initCollapsiblePanels();
 
   const initialChassis = populateChassisOptions();
   if (initialChassis) {
