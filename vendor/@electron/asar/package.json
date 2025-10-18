@@ -35,8 +35,7 @@
     "lint": "yarn prettier:check",
     "prettier": "prettier \"src/**/*.ts\" \"test/**/*.js\" \"*.js\"",
     "prettier:check": "yarn prettier --check",
-    "prettier:write": "yarn prettier --write",
-    "prepare": "tsc"
+    "prettier:write": "yarn prettier --write"
   },
   "dependencies": {
     "commander": "^5.0.0",
