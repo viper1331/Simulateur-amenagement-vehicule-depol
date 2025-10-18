@@ -276,6 +276,11 @@ function sanitizeChassisDefinition(definition) {
     sideDoorEntryWidth: toNullableNumber(definition.sideDoorEntryWidth),
     rearDoorLowerEntryWidth: toNullableNumber(definition.rearDoorLowerEntryWidth),
     interiorHeight: toNullableNumber(definition.interiorHeight),
+    usableLength: toNullableNumber(definition.usableLength),
+    usableWidth: toNullableNumber(definition.usableWidth),
+    usableHeight: toNullableNumber(definition.usableHeight),
+    usableCenterOffsetX: toNullableNumber(definition.usableCenterOffsetX),
+    usableCenterOffsetZ: toNullableNumber(definition.usableCenterOffsetZ),
     color: definition.color !== undefined ? definition.color : 0x8d939c,
     isCustom: definition.isCustom !== undefined ? definition.isCustom : true
   };
@@ -317,6 +322,7 @@ function computeChassisSpatialMetrics(chassis) {
   const frontOverhang = mmToM(chassis.frontOverhang);
   const rearOverhang = mmToM(chassis.rearOverhang);
   let usableLength = pickFirstFinite([
+    Number.isFinite(chassis.usableLength) ? chassis.usableLength : null,
     mmToM(chassis.maxLoadingLength)
   ], null);
 
@@ -334,16 +340,25 @@ function computeChassisSpatialMetrics(chassis) {
   }
 
   const usableWidth = pickFirstFinite([
+    Number.isFinite(chassis.usableWidth) ? chassis.usableWidth : null,
     mmToM(chassis.interiorWidthWheelarches),
     exteriorWidth
   ], exteriorWidth);
 
   const usableHeight = pickFirstFinite([
+    Number.isFinite(chassis.usableHeight) ? chassis.usableHeight : null,
     mmToM(chassis.interiorHeight),
     exteriorHeight
   ], exteriorHeight);
 
+  const usableCenterOffsetX = Number.isFinite(chassis.usableCenterOffsetX)
+    ? chassis.usableCenterOffsetX
+    : 0;
+
   const usableCenterOffsetZ = (() => {
+    if (Number.isFinite(chassis.usableCenterOffsetZ)) {
+      return chassis.usableCenterOffsetZ;
+    }
     const front = Number.isFinite(frontOverhang) ? frontOverhang : 0;
     const rear = Number.isFinite(rearOverhang) ? rearOverhang : 0;
     if (front || rear) {
@@ -359,7 +374,7 @@ function computeChassisSpatialMetrics(chassis) {
     usableLength,
     usableWidth,
     usableHeight,
-    usableCenterOffsetX: 0,
+    usableCenterOffsetX,
     usableCenterOffsetZ
   };
 }
@@ -734,8 +749,12 @@ let scene, camera, renderer, grid, hemiLight, dirLight;
 let raycaster, pointer, dragPlane, dragActive = false;
 let dragOffset = new THREE.Vector3();
 let dragMode = 'horizontal';
+let dragKind = null;
 let workspaceBounds = new THREE.Box3();
-let walkwayMesh, chassisGroup, gabaritGroup;
+let walkwayMesh, chassisGroup, gabaritGroup, usableVisualGroup, usableHandleGroup;
+let activeHandle = null;
+let handleDragState = null;
+const usableHandles = {};
 
 function formatModuleDimensions(size) {
   if (!size || !Number.isFinite(size.x) || !Number.isFinite(size.y) || !Number.isFinite(size.z)) {
@@ -828,6 +847,10 @@ const WALKWAY_THICKNESS = 0.05;
 const MIN_WALKWAY_WIDTH = 0.4;
 const WALKWAY_SIDE_CLEARANCE = 0.05;
 const WALKWAY_END_CLEARANCE = 0.2;
+const MIN_USABLE_WIDTH = 0.5;
+const MIN_USABLE_LENGTH = 1.0;
+const HANDLE_IDLE_COLOR = 0xff8c42;
+const HANDLE_ACTIVE_COLOR = 0xffd166;
 const orbitState = {
   active: false,
   pointer: new THREE.Vector2(),
@@ -838,6 +861,386 @@ const orbitState = {
 };
 
 const ui = {};
+
+function disposeObject3D(object) {
+  if (!object) return;
+  if (object.children && object.children.length) {
+    for (let i = object.children.length - 1; i >= 0; i--) {
+      const child = object.children[i];
+      disposeObject3D(child);
+      object.remove(child);
+    }
+  }
+  if (object.geometry) {
+    object.geometry.dispose();
+  }
+  if (object.material) {
+    if (Array.isArray(object.material)) {
+      object.material.forEach((mat) => {
+        if (mat && typeof mat.dispose === 'function') {
+          mat.dispose();
+        }
+      });
+    } else if (typeof object.material.dispose === 'function') {
+      object.material.dispose();
+    }
+  }
+}
+
+function disposeGroupChildren(group) {
+  if (!group) return;
+  for (let i = group.children.length - 1; i >= 0; i--) {
+    const child = group.children[i];
+    group.remove(child);
+    disposeObject3D(child);
+  }
+}
+
+function getUsableBounds(chassis) {
+  if (!chassis) return null;
+  const width = Number.isFinite(chassis.usableWidth) ? chassis.usableWidth : chassis.width;
+  const length = Number.isFinite(chassis.usableLength) ? chassis.usableLength : chassis.length;
+  const centerX = Number.isFinite(chassis.usableCenterOffsetX) ? chassis.usableCenterOffsetX : 0;
+  const centerZ = Number.isFinite(chassis.usableCenterOffsetZ) ? chassis.usableCenterOffsetZ : 0;
+  return {
+    minX: centerX - width / 2,
+    maxX: centerX + width / 2,
+    minZ: centerZ - length / 2,
+    maxZ: centerZ + length / 2,
+    width,
+    length,
+    centerX,
+    centerZ
+  };
+}
+
+function clampInterval(minValue, maxValue, minBound, maxBound, minSize) {
+  let min = Math.min(minValue, maxValue);
+  let max = Math.max(minValue, maxValue);
+  min = Math.max(min, minBound);
+  max = Math.min(max, maxBound);
+  const available = Math.max(maxBound - minBound, 0);
+  const requiredSize = Math.min(minSize, available);
+  if (max - min < requiredSize) {
+    const halfSize = requiredSize / 2;
+    let center = (min + max) / 2;
+    center = THREE.MathUtils.clamp(center, minBound + halfSize, maxBound - halfSize);
+    min = center - halfSize;
+    max = center + halfSize;
+    if (min < minBound) {
+      min = minBound;
+      max = minBound + requiredSize;
+    }
+    if (max > maxBound) {
+      max = maxBound;
+      min = maxBound - requiredSize;
+    }
+  }
+  min = THREE.MathUtils.clamp(min, minBound, maxBound);
+  max = THREE.MathUtils.clamp(max, minBound, maxBound);
+  if (max - min < requiredSize) {
+    min = max - requiredSize;
+    if (min < minBound) {
+      min = minBound;
+      max = minBound + requiredSize;
+    }
+  }
+  return { min, max };
+}
+
+function commitUsableBounds(bounds) {
+  if (!state.chassisData) return;
+  const chassis = state.chassisData;
+  const halfWidth = chassis.width / 2;
+  const halfLength = chassis.length / 2;
+  const clampedX = clampInterval(bounds.minX, bounds.maxX, -halfWidth, halfWidth, MIN_USABLE_WIDTH);
+  const clampedZ = clampInterval(bounds.minZ, bounds.maxZ, -halfLength, halfLength, MIN_USABLE_LENGTH);
+
+  chassis.usableWidth = clampedX.max - clampedX.min;
+  chassis.usableLength = clampedZ.max - clampedZ.min;
+  chassis.usableCenterOffsetX = (clampedX.min + clampedX.max) / 2;
+  chassis.usableCenterOffsetZ = (clampedZ.min + clampedZ.max) / 2;
+
+  updateWorkspaceBounds(chassis);
+  relocateWalkway();
+  updateUsableVolumeVisuals();
+  updateUsableHandlePositions();
+  refreshChassisInfo();
+  updateAnalysis();
+}
+
+function ensureUsableHandles() {
+  if (!usableHandleGroup) return;
+  const ensureHandle = (key, geometryFactory) => {
+    if (usableHandles[key]) return;
+    const geometry = geometryFactory();
+    const material = new THREE.MeshBasicMaterial({
+      color: HANDLE_IDLE_COLOR,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+      depthTest: false
+    });
+    const handle = new THREE.Mesh(geometry, material);
+    handle.userData.handleType = key;
+    handle.userData.baseColor = HANDLE_IDLE_COLOR;
+    handle.userData.activeColor = HANDLE_ACTIVE_COLOR;
+    usableHandleGroup.add(handle);
+    usableHandles[key] = handle;
+  };
+
+  const defaultBarGeometry = () => new THREE.BoxGeometry(0.12, 0.5, 0.5);
+  ensureHandle('left', defaultBarGeometry);
+  ensureHandle('right', defaultBarGeometry);
+  ensureHandle('front', defaultBarGeometry);
+  ensureHandle('back', defaultBarGeometry);
+  if (!usableHandles.center) {
+    const centerMaterial = new THREE.MeshBasicMaterial({
+      color: HANDLE_IDLE_COLOR,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+      depthTest: false
+    });
+    const center = new THREE.Mesh(new THREE.SphereGeometry(0.15, 18, 18), centerMaterial);
+    center.userData.handleType = 'center';
+    center.userData.baseColor = HANDLE_IDLE_COLOR;
+    center.userData.activeColor = HANDLE_ACTIVE_COLOR;
+    usableHandleGroup.add(center);
+    usableHandles.center = center;
+  }
+}
+
+function updateUsableHandleGeometry(handle, width, height, depth) {
+  if (!handle) return;
+  if (handle.geometry) {
+    handle.geometry.dispose();
+  }
+  handle.geometry = new THREE.BoxGeometry(Math.max(width, 0.08), Math.max(height, 0.1), Math.max(depth, 0.08));
+}
+
+function updateUsableHandlePositions() {
+  ensureUsableHandles();
+  if (!state.chassisData || !usableHandleGroup) {
+    Object.values(usableHandles).forEach((handle) => {
+      if (handle) handle.visible = false;
+    });
+    return;
+  }
+  const bounds = getUsableBounds(state.chassisData);
+  if (!bounds) {
+    Object.values(usableHandles).forEach((handle) => {
+      if (handle) handle.visible = false;
+    });
+    return;
+  }
+  const usableHeight = Number.isFinite(state.chassisData.usableHeight)
+    ? state.chassisData.usableHeight
+    : state.chassisData.height;
+  const clampedHeight = Math.max(usableHeight, 0.2);
+  const handleHeight = Math.min(Math.max(clampedHeight * 0.8, 0.25), clampedHeight + 0.2);
+  const handleDepth = Math.max(Math.min(bounds.length, 3), 0.3);
+  const handleWidth = Math.max(Math.min(bounds.width, 3), 0.3);
+  const midY = clampedHeight / 2;
+
+  updateUsableHandleGeometry(usableHandles.left, 0.12, handleHeight, handleDepth);
+  updateUsableHandleGeometry(usableHandles.right, 0.12, handleHeight, handleDepth);
+  updateUsableHandleGeometry(usableHandles.front, handleWidth, handleHeight, 0.12);
+  updateUsableHandleGeometry(usableHandles.back, handleWidth, handleHeight, 0.12);
+
+  if (usableHandles.left) {
+    usableHandles.left.visible = true;
+    usableHandles.left.position.set(bounds.minX, midY, bounds.centerZ);
+  }
+  if (usableHandles.right) {
+    usableHandles.right.visible = true;
+    usableHandles.right.position.set(bounds.maxX, midY, bounds.centerZ);
+  }
+  if (usableHandles.front) {
+    usableHandles.front.visible = true;
+    usableHandles.front.position.set(bounds.centerX, midY, bounds.maxZ);
+  }
+  if (usableHandles.back) {
+    usableHandles.back.visible = true;
+    usableHandles.back.position.set(bounds.centerX, midY, bounds.minZ);
+  }
+  if (usableHandles.center) {
+    usableHandles.center.visible = true;
+    usableHandles.center.position.set(bounds.centerX, clampedHeight + 0.25, bounds.centerZ);
+  }
+}
+
+function updateUsableVolumeVisuals() {
+  disposeGroupChildren(usableVisualGroup);
+  if (!state.chassisData || !usableVisualGroup) return;
+
+  const chassis = state.chassisData;
+  const bounds = getUsableBounds(chassis);
+  if (!bounds) return;
+
+  const usableHeight = Number.isFinite(chassis.usableHeight) ? chassis.usableHeight : chassis.height;
+  const usableMaterial = new THREE.MeshBasicMaterial({
+    color: 0x2be8a2,
+    transparent: true,
+    opacity: 0.16,
+    depthWrite: false
+  });
+  const usableGeometry = new THREE.BoxGeometry(bounds.width, usableHeight, bounds.length);
+  const usableMesh = new THREE.Mesh(usableGeometry, usableMaterial);
+  usableMesh.position.set(bounds.centerX, usableHeight / 2, bounds.centerZ);
+  usableMesh.raycast = () => {};
+  usableVisualGroup.add(usableMesh);
+
+  const usableEdges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(usableGeometry),
+    new THREE.LineBasicMaterial({ color: 0x2be8a2, transparent: true, opacity: 0.9 })
+  );
+  usableEdges.position.copy(usableMesh.position);
+  usableEdges.raycast = () => {};
+  usableVisualGroup.add(usableEdges);
+
+  const boundaryMaterial = new THREE.MeshBasicMaterial({
+    color: 0xff7d5c,
+    transparent: true,
+    opacity: 0.18,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+
+  const chassisHalfWidth = chassis.width / 2;
+  const chassisHalfLength = chassis.length / 2;
+  const chassisHeight = chassis.height;
+
+  const usableMinX = bounds.minX;
+  const usableMaxX = bounds.maxX;
+  const usableMinZ = bounds.minZ;
+  const usableMaxZ = bounds.maxZ;
+
+  if (usableMinX > -chassisHalfWidth + 1e-3) {
+    const width = usableMinX - (-chassisHalfWidth);
+    const sideGeom = new THREE.BoxGeometry(width, chassisHeight, chassis.length);
+    const sideMesh = new THREE.Mesh(sideGeom, boundaryMaterial.clone());
+    sideMesh.position.set(-chassisHalfWidth + width / 2, chassisHeight / 2, 0);
+    sideMesh.raycast = () => {};
+    usableVisualGroup.add(sideMesh);
+  }
+  if (usableMaxX < chassisHalfWidth - 1e-3) {
+    const width = chassisHalfWidth - usableMaxX;
+    const sideGeom = new THREE.BoxGeometry(width, chassisHeight, chassis.length);
+    const sideMesh = new THREE.Mesh(sideGeom, boundaryMaterial.clone());
+    sideMesh.position.set(chassisHalfWidth - width / 2, chassisHeight / 2, 0);
+    sideMesh.raycast = () => {};
+    usableVisualGroup.add(sideMesh);
+  }
+  if (usableMinZ > -chassisHalfLength + 1e-3) {
+    const length = usableMinZ - (-chassisHalfLength);
+    const frontGeom = new THREE.BoxGeometry(chassis.width, chassisHeight, length);
+    const frontMesh = new THREE.Mesh(frontGeom, boundaryMaterial.clone());
+    frontMesh.position.set(0, chassisHeight / 2, -chassisHalfLength + length / 2);
+    frontMesh.raycast = () => {};
+    usableVisualGroup.add(frontMesh);
+  }
+  if (usableMaxZ < chassisHalfLength - 1e-3) {
+    const length = chassisHalfLength - usableMaxZ;
+    const rearGeom = new THREE.BoxGeometry(chassis.width, chassisHeight, length);
+    const rearMesh = new THREE.Mesh(rearGeom, boundaryMaterial.clone());
+    rearMesh.position.set(0, chassisHeight / 2, chassisHalfLength - length / 2);
+    rearMesh.raycast = () => {};
+    usableVisualGroup.add(rearMesh);
+  }
+
+  if (usableHeight < chassisHeight - 1e-3) {
+    const height = chassisHeight - usableHeight;
+    const topGeom = new THREE.BoxGeometry(bounds.width, height, bounds.length);
+    const topMesh = new THREE.Mesh(topGeom, boundaryMaterial.clone());
+    topMesh.position.set(bounds.centerX, usableHeight + height / 2, bounds.centerZ);
+    topMesh.raycast = () => {};
+    usableVisualGroup.add(topMesh);
+  }
+}
+
+function intersectUsableHandles(event) {
+  if (!usableHandleGroup) return [];
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  return raycaster.intersectObjects(usableHandleGroup.children, false);
+}
+
+function updateHandleHud() {
+  if (!ui.hud || !state.chassisData) return;
+  ui.hud.innerHTML = `Volume utile <span>Largeur : ${state.chassisData.usableWidth.toFixed(2)} m</span><span>Longueur : ${state.chassisData.usableLength.toFixed(2)} m</span>`;
+}
+
+function beginHandleDrag(handle, event) {
+  if (!handle || !handle.userData || !handle.userData.handleType) return;
+  dragActive = true;
+  dragKind = 'usable-handle';
+  activeHandle = handle;
+  const startBounds = getUsableBounds(state.chassisData);
+  if (!startBounds) {
+    dragActive = false;
+    dragKind = null;
+    activeHandle = null;
+    return;
+  }
+  handleDragState = {
+    type: handle.userData.handleType,
+    startBounds,
+    offsetX: 0,
+    offsetZ: 0
+  };
+  dragPlane.set(new THREE.Vector3(0, 1, 0), 0);
+  const point = getPlaneIntersection(event, dragPlane);
+  if (point) {
+    const worldPos = handle.getWorldPosition(new THREE.Vector3());
+    handleDragState.offsetX = worldPos.x - point.x;
+    handleDragState.offsetZ = worldPos.z - point.z;
+  }
+  if (handle.material && handle.material.color && handle.userData.activeColor) {
+    handle.material.color.setHex(handle.userData.activeColor);
+  }
+  renderer.domElement.setPointerCapture(event.pointerId);
+  updateHandleHud();
+}
+
+function updateHandleDrag(event) {
+  if (!handleDragState || !handleDragState.startBounds) return;
+  const point = getPlaneIntersection(event, dragPlane);
+  if (!point) return;
+  const { type, startBounds, offsetX, offsetZ } = handleDragState;
+  let minX = startBounds.minX;
+  let maxX = startBounds.maxX;
+  let minZ = startBounds.minZ;
+  let maxZ = startBounds.maxZ;
+
+  if (type === 'left') {
+    minX = snapValue(point.x + offsetX);
+    maxX = startBounds.maxX;
+  } else if (type === 'right') {
+    maxX = snapValue(point.x + offsetX);
+    minX = startBounds.minX;
+  } else if (type === 'front') {
+    maxZ = snapValue(point.z + offsetZ);
+    minZ = startBounds.minZ;
+  } else if (type === 'back') {
+    minZ = snapValue(point.z + offsetZ);
+    maxZ = startBounds.maxZ;
+  } else if (type === 'center') {
+    const width = startBounds.width;
+    const length = startBounds.length;
+    const centerX = snapValue(point.x + offsetX);
+    const centerZ = snapValue(point.z + offsetZ);
+    minX = centerX - width / 2;
+    maxX = centerX + width / 2;
+    minZ = centerZ - length / 2;
+    maxZ = centerZ + length / 2;
+  }
+
+  commitUsableBounds({ minX, maxX, minZ, maxZ });
+  updateHandleHud();
+}
 
 function initScene() {
   scene = new THREE.Scene();
@@ -879,6 +1282,12 @@ function initScene() {
 
   gabaritGroup = new THREE.Group();
   scene.add(gabaritGroup);
+
+  usableVisualGroup = new THREE.Group();
+  scene.add(usableVisualGroup);
+
+  usableHandleGroup = new THREE.Group();
+  scene.add(usableHandleGroup);
 
   walkwayMesh = createWalkwayMesh(state.walkwayWidth, DEFAULT_WALKWAY_LENGTH, state.walkwayVisible);
   scene.add(walkwayMesh);
@@ -1719,6 +2128,8 @@ function applyChassis(chassis) {
   updateGabaritPlanes(state.chassisData);
   updateWorkspaceBounds(state.chassisData);
   relocateWalkway();
+  updateUsableVolumeVisuals();
+  updateUsableHandlePositions();
   refreshChassisInfo();
   resetOrbitToChassis();
   relocateModulesInsideBounds();
@@ -1904,6 +2315,17 @@ function onPointerDown(event) {
     renderer.domElement.setPointerCapture(event.pointerId);
     return;
   }
+  const handleHits = intersectUsableHandles(event);
+  if (handleHits.length > 0) {
+    const target = handleHits[0].object.userData.handleType
+      ? handleHits[0].object
+      : handleHits[0].object.parent;
+    if (target && target.userData && target.userData.handleType) {
+      selectModule(null);
+      beginHandleDrag(target, event);
+      return;
+    }
+  }
   const intersects = intersectModules(event);
   if (intersects.length > 0) {
     const module = state.modules.find((mod) => mod.mesh === intersects[0].object || mod.mesh === intersects[0].object.parent);
@@ -1911,6 +2333,7 @@ function onPointerDown(event) {
       selectModule(module);
       if (state.mode === 'translate' || state.mode === 'rotate') {
         dragActive = true;
+        dragKind = state.mode === 'translate' ? 'module-translate' : 'module-rotate';
         dragMode = 'horizontal';
         if (state.mode === 'translate' && event.shiftKey) {
           dragMode = 'vertical';
@@ -1933,6 +2356,7 @@ function onPointerDown(event) {
     }
   } else {
     selectModule(null);
+    dragKind = null;
   }
 }
 
@@ -1946,11 +2370,15 @@ function onPointerMove(event) {
     updateCameraFromOrbit();
     return;
   }
+  if (dragActive && dragKind === 'usable-handle') {
+    updateHandleDrag(event);
+    return;
+  }
   if (!dragActive || !state.selected) {
     updateHud(event);
     return;
   }
-  if (state.mode === 'translate') {
+  if (dragKind === 'module-translate') {
     const point = getPlaneIntersection(event, dragPlane);
     if (!point) return;
     let target;
@@ -1969,7 +2397,7 @@ function onPointerMove(event) {
     syncModuleState(state.selected);
     updateSelectionDetails();
     updateAnalysis();
-  } else if (state.mode === 'rotate') {
+  } else if (dragKind === 'module-rotate') {
     const delta = event.movementX;
     const rotationStep = degToRad(5);
     const newRot = snapValue(state.selected.mesh.rotation.y + delta * 0.01, rotationStep);
@@ -1991,9 +2419,28 @@ function onPointerUp(event) {
     }
     return;
   }
+  if (dragActive && dragKind === 'usable-handle') {
+    dragActive = false;
+    dragKind = null;
+    dragMode = 'horizontal';
+    handleDragState = null;
+    if (activeHandle && activeHandle.material && activeHandle.userData && activeHandle.userData.baseColor) {
+      activeHandle.material.color.setHex(activeHandle.userData.baseColor);
+    }
+    activeHandle = null;
+    try {
+      renderer.domElement.releasePointerCapture(event.pointerId);
+    } catch (err) {
+      /* noop */
+    }
+    pushHistory();
+    updateHud(event);
+    return;
+  }
   if (dragActive) {
     dragActive = false;
     dragMode = 'horizontal';
+    dragKind = null;
     renderer.domElement.releasePointerCapture(event.pointerId);
     pushHistory();
   }
