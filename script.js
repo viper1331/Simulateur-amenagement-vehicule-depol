@@ -2090,6 +2090,13 @@ function initUI() {
   ui.filterShowUsableBoundaries = document.getElementById('filter-show-usable-boundaries');
   ui.filterShowLabels = document.getElementById('filter-show-labels');
 
+  if (ui.modulesSolidToggle) {
+    state.modulesSolid = ui.modulesSolidToggle.checked;
+  }
+  if (ui.modulesMagnetToggle) {
+    state.magnetismEnabled = ui.modulesMagnetToggle.checked;
+  }
+
   if (ui.filterShowChassis) ui.filterShowChassis.checked = state.showChassis;
   if (ui.filterShowGrid) ui.filterShowGrid.checked = state.showGrid;
   if (ui.filterShowGabarit) ui.filterShowGabarit.checked = state.showGabarit;
@@ -2467,6 +2474,23 @@ function bindUIEvents() {
     });
   }
 
+  if (ui.modulesSolidToggle) {
+    ui.modulesSolidToggle.addEventListener('change', () => {
+      state.modulesSolid = ui.modulesSolidToggle.checked;
+      if (state.modulesSolid) {
+        separateOverlappingModules();
+      }
+      pushHistory();
+    });
+  }
+
+  if (ui.modulesMagnetToggle) {
+    ui.modulesMagnetToggle.addEventListener('change', () => {
+      state.magnetismEnabled = ui.modulesMagnetToggle.checked;
+      pushHistory();
+    });
+  }
+
   window.addEventListener('resize', onResize);
   renderer.domElement.addEventListener('pointerdown', onPointerDown);
   renderer.domElement.addEventListener('pointermove', onPointerMove);
@@ -2754,9 +2778,9 @@ function handleCustomModuleSubmit(event) {
     }
     const type = (data.get('type') || '').toString().trim() || 'Custom';
     const shape = normalizeModuleShape(data.get('shape') || 'box');
-    const sizeX = parseMillimeterField(data.get('sizeX'), 'Largeur', { min: 200 });
-    const sizeY = parseMillimeterField(data.get('sizeY'), 'Hauteur', { min: 200 });
-    const sizeZ = parseMillimeterField(data.get('sizeZ'), 'Longueur', { min: 200 });
+    const sizeX = parseMillimeterField(data.get('sizeX'), 'Largeur', { min: 1 });
+    const sizeY = parseMillimeterField(data.get('sizeY'), 'Hauteur', { min: 1 });
+    const sizeZ = parseMillimeterField(data.get('sizeZ'), 'Longueur', { min: 1 });
     const massEmpty = parseNumberField(data.get('massEmpty'), 'Masse à vide', { min: 0 });
     const containsFluid = data.get('containsFluid') === 'on';
     const fluidVolume = containsFluid
@@ -3766,6 +3790,11 @@ function restoreState(data) {
   ui.walkwayToggle.checked = state.walkwayVisible;
   updateWalkway();
   walkwayMesh.visible = state.walkwayVisible;
+
+  state.modulesSolid = data.modulesSolid !== undefined ? Boolean(data.modulesSolid) : state.modulesSolid;
+  state.magnetismEnabled = data.magnetismEnabled !== undefined ? Boolean(data.magnetismEnabled) : state.magnetismEnabled;
+  if (ui.modulesSolidToggle) ui.modulesSolidToggle.checked = state.modulesSolid;
+  if (ui.modulesMagnetToggle) ui.modulesMagnetToggle.checked = state.magnetismEnabled;
 
   state.showChassis = data.showChassis !== undefined ? data.showChassis : true;
   state.showGrid = data.showGrid !== undefined ? data.showGrid : true;
