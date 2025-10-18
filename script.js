@@ -13,6 +13,7 @@ import { SSAOPass } from 'https://cdn.jsdelivr.net/npm/three@0.161.0/examples/js
 const mmToM = (value) => (Number.isFinite(value) ? value / 1000 : null);
 const mToMm = (value) => (Number.isFinite(value) ? value * 1000 : null);
 const DEFAULT_SNAP_STEP = 0.001;
+const SELECTION_PROXY_PADDING = 0.15;
 const snapValue = (value, step = DEFAULT_SNAP_STEP) => Math.round(value / step) * step;
 const degToRad = (deg) => deg * Math.PI / 180;
 const radToDeg = (rad) => rad * 180 / Math.PI;
@@ -573,363 +574,34 @@ function createModuleGeometry(shape, size) {
   );
 }
 
-function attachIndustrialEdges(target, geometry, color, linewidth) {
-  const edges = createEdgeLines(geometry, color, linewidth);
-  edges.name = 'edges';
-  target.add(edges);
-  return edges;
+function createSelectionProxyGeometry(size) {
+  const padding = Math.max(SELECTION_PROXY_PADDING, 0);
+  const width = Math.max((Number(size?.x) || 0) + padding, 0.1);
+  const height = Math.max((Number(size?.y) || 0) + padding, 0.1);
+  const depth = Math.max((Number(size?.z) || 0) + padding, 0.1);
+  return new THREE.BoxGeometry(width, height, depth);
 }
 
-function createGenericModuleVisual(shape, size, color, profileKey) {
-  const geometry = createModuleGeometry(shape, size);
-  const material = getPhysicalMaterial(color, profileKey);
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  attachIndustrialEdges(mesh, geometry, 0x0b131f, 1.2);
-  return { mesh, geometry };
-}
-
-function createHoseHelix(radius, height, turns, thickness) {
-  class HelixCurve extends THREE.Curve {
-    constructor(r, h, t) {
-      super();
-      this.radius = r;
-      this.height = h;
-      this.turns = t;
-    }
-
-    getPoint(t) {
-      const angle = this.turns * Math.PI * 2 * t;
-      const x = Math.cos(angle) * this.radius;
-      const z = Math.sin(angle) * this.radius;
-      const y = -this.height / 2 + this.height * t;
-      return new THREE.Vector3(x, y, z);
-    }
+function updateMeshGeometryFromDefinition(mesh, definition) {
+  if (!mesh) return;
+  const shape = normalizeModuleShape(definition.shape);
+  const geometry = createModuleGeometry(shape, definition.size);
+  if (mesh.geometry) {
+    mesh.geometry.dispose();
   }
-
-  const curve = new HelixCurve(radius, height, turns);
-  const tubularSegments = Math.max(120, Math.floor(turns * 120));
-  return new TubeGeometry(curve, tubularSegments, thickness, 16, false);
-}
-
-function createHoseReelVisual(size, frameColor) {
-  const group = new THREE.Group();
-  group.name = 'hosereel';
-
-  const frame = createGenericModuleVisual('box', size, frameColor, 'paintedMetal');
-  frame.mesh.scale.set(1, 0.45, 1);
-  frame.mesh.position.y = size.y * 0.225;
-  group.add(frame.mesh);
-
-  const supportHeight = size.y * 0.6;
-  const supportWidth = size.x * 0.85;
-  const drumRadius = Math.min(size.y, size.z) * 0.38;
-  const drumWidth = supportWidth * 0.45;
-  const flangeThickness = Math.max(size.x * 0.05, 0.05);
-
-  const flangeGeometry = new THREE.CylinderGeometry(drumRadius, drumRadius, flangeThickness, 48);
-  const flangeMaterial = getPhysicalMaterial(frameColor, 'paintedMetal');
-  const flangeOffset = drumWidth / 2;
-
-  const flangeLeft = new THREE.Mesh(flangeGeometry, flangeMaterial);
-  flangeLeft.rotation.z = Math.PI / 2;
-  flangeLeft.position.set(0, supportHeight / 2, -flangeOffset);
-  flangeLeft.castShadow = flangeLeft.receiveShadow = true;
-  attachIndustrialEdges(flangeLeft, flangeGeometry, 0x11161f, 1.0);
-
-  const flangeRight = flangeLeft.clone();
-  flangeRight.position.z = flangeOffset;
-
-  const coreRadius = drumRadius * 0.35;
-  const coreGeometry = new THREE.CylinderGeometry(coreRadius, coreRadius, drumWidth, 24);
-  const coreMaterial = getPhysicalMaterial(RAL_COLORS.chassisAccent, 'stainless');
-  const core = new THREE.Mesh(coreGeometry, coreMaterial);
-  core.rotation.z = Math.PI / 2;
-  core.position.set(0, supportHeight / 2, 0);
-  core.castShadow = core.receiveShadow = true;
-  attachIndustrialEdges(core, coreGeometry, 0x202a33, 1.0);
-
-  const hoseGeometry = createHoseHelix(coreRadius * 1.1, drumWidth * 0.9, 6, Math.max(size.y, size.z) * 0.03);
-  const hoseMaterial = getPhysicalMaterial(RAL_COLORS.hose, 'rubber');
-  const hose = new THREE.Mesh(hoseGeometry, hoseMaterial);
-  hose.rotation.x = Math.PI / 2;
-  hose.position.set(0, supportHeight / 2, 0);
-  hose.castShadow = hose.receiveShadow = true;
-
-  group.add(flangeLeft, flangeRight, core, hose);
-
-  group.userData.visualType = 'hosereel';
-  return group;
-}
-
-function createPumpVisual(size, color) {
-  const group = new THREE.Group();
-  group.name = 'pump';
-
-  const body = createGenericModuleVisual('box', size, color, 'paintedMetal');
-  body.mesh.position.y = size.y / 2;
-  group.add(body.mesh);
-
-  const inletRadius = Math.min(size.x, size.z) * 0.12;
-  const inletGeometry = new THREE.CylinderGeometry(inletRadius, inletRadius, size.z * 0.6, 24);
-  const connectorMaterial = getPhysicalMaterial(RAL_COLORS.chassisAccent, 'stainless');
-  const inlet = new THREE.Mesh(inletGeometry, connectorMaterial);
-  inlet.rotation.x = Math.PI / 2;
-  inlet.position.set(-size.x * 0.35, size.y * 0.6, 0);
-  inlet.castShadow = inlet.receiveShadow = true;
-  attachIndustrialEdges(inlet, inletGeometry, 0x1b2230, 1.0);
-
-  const outlet = inlet.clone();
-  outlet.position.x = size.x * 0.35;
-
-  const curvePoints = [
-    new THREE.Vector3(-size.x * 0.35, size.y * 0.6, 0),
-    new THREE.Vector3(-size.x * 0.15, size.y * 0.8, size.z * 0.2),
-    new THREE.Vector3(size.x * 0.15, size.y * 0.8, -size.z * 0.2),
-    new THREE.Vector3(size.x * 0.35, size.y * 0.6, 0)
-  ];
-  const curve = new THREE.CatmullRomCurve3(curvePoints);
-  const pipeGeometry = new TubeGeometry(curve, 48, inletRadius * 0.6, 16, false);
-  const pipeMaterial = getPhysicalMaterial(RAL_COLORS.hose, 'rubber');
-  const pipe = new THREE.Mesh(pipeGeometry, pipeMaterial);
-  pipe.castShadow = pipe.receiveShadow = true;
-
-  const jointGeometry = new THREE.TorusGeometry(inletRadius * 0.9, inletRadius * 0.3, 16, 24);
-  const jointLeft = new THREE.Mesh(jointGeometry, connectorMaterial);
-  jointLeft.rotation.set(Math.PI / 2, 0, 0);
-  jointLeft.position.copy(curvePoints[1]);
-  jointLeft.castShadow = jointLeft.receiveShadow = true;
-  const jointRight = jointLeft.clone();
-  jointRight.position.copy(curvePoints[2]);
-
-  group.add(inlet, outlet, pipe, jointLeft, jointRight);
-  return group;
-}
-
-function createCabinetVisual(size, color) {
-  const group = new THREE.Group();
-  group.name = 'cabinet';
-  const body = createGenericModuleVisual('box', size, color, 'paintedMetal');
-  body.mesh.position.y = size.y / 2;
-  group.add(body.mesh);
-
-  const grooveGeometry = new THREE.PlaneGeometry(size.x * 0.9, 0.001);
-  const grooveMaterial = new THREE.MeshBasicMaterial({
-    color: 0x1d2a33,
-    transparent: true,
-    opacity: 0.35,
-    side: THREE.DoubleSide
-  });
-  const grooveCount = 3;
-  for (let i = 0; i < grooveCount; i++) {
-    const groove = new THREE.Mesh(grooveGeometry, grooveMaterial.clone());
-    groove.rotation.y = Math.PI / 2;
-    groove.position.set(0, size.y * (0.25 + 0.2 * i), size.z / 2 + 0.001);
-    group.add(groove);
-  }
-
-  const handleCount = 4;
-  const handleRadius = Math.min(size.x, size.y) * 0.025;
-  const handleHeight = size.y * 0.1;
-  const handleGeometry = new THREE.CylinderGeometry(handleRadius, handleRadius, handleHeight, 12);
-  const handleMaterial = getPhysicalMaterial(RAL_COLORS.chassisAccent, 'stainless');
-  const handles = new THREE.InstancedMesh(handleGeometry, handleMaterial, handleCount);
-  const dummy = new THREE.Object3D();
-  for (let i = 0; i < handleCount; i++) {
-    const v = (i % 2 === 0 ? -1 : 1) * size.x * 0.35;
-    const h = size.y * (0.25 + 0.2 * Math.floor(i / 2));
-    dummy.position.set(v, h, size.z / 2 + handleHeight / 2);
-    dummy.rotation.x = Math.PI / 2;
-    dummy.updateMatrix();
-    handles.setMatrixAt(i, dummy.matrix);
-  }
-  handles.castShadow = handles.receiveShadow = true;
-  group.add(handles);
-
-  return group;
-}
-
-function createSwingDoor(door, size, color) {
-  const group = new THREE.Group();
-  group.name = door.id || 'swing-door';
-  const width = size.x * (door.widthRatio || 0.5);
-  const height = size.y * (door.heightRatio || 0.8);
-  const thickness = door.thickness ?? 0.04;
-  const radius = THREE.MathUtils.clamp(Math.min(width, height) * 0.1, 0.005, 0.05);
-  const geometry = new RoundedBoxGeometry(width, height, thickness, radius, 3);
-  const material = getPhysicalMaterial(color, 'paintedMetal', { roughness: 0.35 });
-  const panel = new THREE.Mesh(geometry, material);
-  panel.castShadow = true;
-  panel.receiveShadow = true;
-  attachIndustrialEdges(panel, geometry, 0x121c24, 1.0);
-  const hingeSide = (door.hingeSide || 'left').toLowerCase() === 'right' ? 1 : -1;
-  const pivot = new THREE.Group();
-  pivot.position.set(hingeSide * (size.x / 2), height / 2, size.z / 2 + thickness / 2 + 0.001);
-  panel.position.set(hingeSide * (-width / 2), 0, 0);
-  pivot.add(panel);
-
-  const handleGeometry = new THREE.CylinderGeometry(thickness * 0.25, thickness * 0.25, height * 0.12, 12);
-  const handleMaterial = getPhysicalMaterial(RAL_COLORS.chassisAccent, 'stainless');
-  const handle = new THREE.Mesh(handleGeometry, handleMaterial);
-  handle.rotation.z = Math.PI / 2;
-  handle.position.set(-hingeSide * (width * 0.35), 0, thickness * 0.6);
-  panel.add(handle);
-
-  group.add(pivot);
-  group.userData = {
-    type: 'swing',
-    config: door,
-    panel,
-    pivot,
-    openAngleDeg: door.openAngleDeg ?? 110,
-    openTimeMs: door.openTimeMs ?? 1200,
-    progress: 0,
-    hingeSide,
-    baseRotation: 0
-  };
-  return group;
-}
-
-function createLiftDoor(door, size, color) {
-  const group = new THREE.Group();
-  group.name = door.id || 'lift-door';
-  const width = size.x * (door.widthRatio || 0.8);
-  const height = size.y * (door.heightRatio || 0.6);
-  const thickness = door.thickness ?? 0.035;
-  const radius = THREE.MathUtils.clamp(Math.min(width, height) * 0.12, 0.005, 0.05);
-  const geometry = new RoundedBoxGeometry(width, height, thickness, radius, 3);
-  const material = getPhysicalMaterial(color, 'paintedMetal', { roughness: 0.3 });
-  const panel = new THREE.Mesh(geometry, material);
-  panel.castShadow = true;
-  panel.receiveShadow = true;
-  attachIndustrialEdges(panel, geometry, 0x121c24, 1.0);
-  panel.position.set(0, height / 2, size.z / 2 + thickness / 2 + 0.001);
-  panel.userData = { basePosition: panel.position.clone() };
-  group.add(panel);
-  group.userData = {
-    type: 'lift',
-    config: door,
-    panel,
-    openTimeMs: door.openTimeMs ?? 1400,
-    slideDistance: (door.slideDistanceMm ?? 400) / 1000,
-    progress: 0
-  };
-  return group;
-}
-
-function attachModuleDoors(pivot, definition, size, baseColor) {
-  if (!pivot || !definition) return [];
-  const doors = Array.isArray(definition.doors) ? definition.doors : [];
-  const created = [];
-  doors.forEach((door) => {
-    let doorGroup = null;
-    if (door.type === 'swing') {
-      doorGroup = createSwingDoor(door, size, baseColor);
-    } else if (door.type === 'lift') {
-      doorGroup = createLiftDoor(door, size, baseColor);
-    }
-    if (doorGroup) {
-      pivot.add(doorGroup);
-      created.push({
-        id: door.id,
-        label: door.label || door.id,
-        type: doorGroup.userData.type,
-        group: doorGroup,
-        config: door,
-        progress: 0,
-        open: false,
-        alert: false
-      });
-    }
-  });
-  return created;
-}
-
-function configureDirectionalLight(light) {
-  if (!light) return;
-  light.castShadow = true;
-  light.shadow.camera.near = 0.5;
-  light.shadow.camera.far = 50;
-  const span = 16;
-  light.shadow.camera.left = -span;
-  light.shadow.camera.right = span;
-  light.shadow.camera.top = span;
-  light.shadow.camera.bottom = -span;
-  light.shadow.bias = -0.00018;
-  updateShadowMapSize(light, QUALITY_PROFILES[qualityMode].shadowMapSize);
-}
-
-function updateShadowMapSize(light, size) {
-  if (!light || !light.shadow) return;
-  const mapSize = Math.max(256, size || 1024);
-  light.shadow.mapSize.set(mapSize, mapSize);
-  if (light.shadow.map) {
-    light.shadow.map.dispose();
-  }
-}
-
-function createContactShadowMesh() {
-  const geometry = new THREE.PlaneGeometry(18, 18);
-  const material = new THREE.ShaderMaterial({
-    uniforms: {
-      uColor: { value: new THREE.Color(0x000000) },
-      uOpacity: { value: 0.28 },
-      uRadius: { value: 0.85 }
-    },
-    transparent: true,
-    depthWrite: false,
-    vertexShader: `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv * 2.0 - 1.0;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  mesh.geometry = geometry;
+  mesh.position.y = definition.size.y / 2;
+  mesh.children.forEach((child) => {
+    if (child.isLineSegments) {
+      if (child.geometry) {
+        child.geometry.dispose();
       }
-    `,
-    fragmentShader: `
-      varying vec2 vUv;
-      uniform vec3 uColor;
-      uniform float uOpacity;
-      uniform float uRadius;
-      void main() {
-        float dist = length(vUv);
-        float softness = smoothstep(uRadius, uRadius - 0.35, dist);
-        float alpha = (1.0 - softness) * uOpacity;
-        gl_FragColor = vec4(uColor, alpha);
+      child.geometry = new THREE.EdgesGeometry(geometry);
+    } else if (child.userData && child.userData.isSelectionProxy) {
+      if (child.geometry) {
+        child.geometry.dispose();
       }
-    `
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.rotation.x = -Math.PI / 2;
-  mesh.position.y = 0.0005;
-  mesh.renderOrder = -1;
-  return mesh;
-}
-
-function initPostProcessing() {
-  composer = new EffectComposer(renderer);
-  renderPass = new RenderPass(scene, camera);
-  composer.addPass(renderPass);
-  ssaoPass = new SSAOPass(scene, camera, getViewportWidth(), getViewportHeight());
-  ssaoPass.kernelRadius = 8;
-  ssaoPass.minDistance = 0.005;
-  ssaoPass.maxDistance = 0.2;
-  composer.addPass(ssaoPass);
-  smaaPass = new SMAAPass(getViewportWidth(), getViewportHeight());
-  composer.addPass(smaaPass);
-}
-
-function updateComposerSize(width, height) {
-  if (!composer) return;
-  composer.setSize(width, height);
-  if (ssaoPass) ssaoPass.setSize(width, height);
-  if (smaaPass && smaaPass.setSize) smaaPass.setSize(width, height);
-}
-
-function updateLineMaterialsResolution(width, height) {
-  lineMaterials.forEach((material) => {
-    if (!material.resolution) {
-      material.resolution = new THREE.Vector2();
+      child.geometry = createSelectionProxyGeometry(definition.size);
     }
     material.resolution.set(width, height);
   });
@@ -1198,64 +870,27 @@ function createModuleInstance(definition, overrides = {}) {
     size: sizeOverride || undefined,
     color: colorOverride
   });
-
-  const resolvedContainsFluid = overrides.containsFluid !== undefined
-    ? Boolean(overrides.containsFluid)
-    : Boolean(definition.containsFluid);
-
-  const overrideFluidVolume = toNullableNumber(overrides.fluidVolume);
-  const definitionFluidVolume = toNullableNumber(definition.fluidVolume);
-  const resolvedFluidVolume = resolvedContainsFluid
-    ? (overrideFluidVolume ?? definitionFluidVolume ?? 0)
-    : 0;
-
-  const overrideDensity = toNullableNumber(overrides.density);
-  const definitionDensity = toNullableNumber(definition.density);
-  const resolvedDensity = resolvedContainsFluid
-    ? (overrideDensity ?? definitionDensity ?? 0)
-    : 0;
-
-  const overrideFill = toNullableNumber(overrides.fill);
-  const definitionFill = toNullableNumber(definition.defaultFill);
-  const resolvedFill = resolvedContainsFluid
-    ? Math.min(100, Math.max(0, overrideFill ?? definitionFill ?? 0))
-    : 0;
-
-  const overrideMass = toNullableNumber(overrides.massEmpty);
-  const definitionMass = toNullableNumber(definition.massEmpty);
-  const resolvedMassEmpty = overrideMass ?? definitionMass ?? 0;
-
-  const instance = {
-    id: overrides.instanceId || `module-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-    definitionId: definition.id,
-    type: overrides.type || definition.type,
-    name: overrides.name || definition.name,
-    mesh,
-    shape: overrides.shape ? normalizeModuleShape(overrides.shape) : shape,
-    fill: resolvedFill,
-    massEmpty: resolvedMassEmpty,
-    fluidVolume: resolvedFluidVolume,
-    density: resolvedDensity,
-    containsFluid: resolvedContainsFluid,
-    size: { ...size },
-    color: colorOverride !== undefined ? colorOverride : color,
-    isCustom: overrides.isCustom !== undefined ? Boolean(overrides.isCustom) : Boolean(definition.isCustom),
-    libraryId: overrides.libraryId || definition.libraryId,
-    libraryName: overrides.libraryName || definition.libraryName,
-    librarySource: overrides.librarySource || definition.librarySource,
-    libraryLicense: overrides.libraryLicense || definition.libraryLicense,
-    libraryWebsite: overrides.libraryWebsite || definition.libraryWebsite,
-    labelSprite: null
-  };
-
-  if (overrides.position instanceof THREE.Vector3) {
-    mesh.position.copy(overrides.position);
-  }
-  if (overrides.rotation !== undefined) {
-    mesh.rotation.y = overrides.rotation;
-  }
-
-  return instance;
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.position.set(0, resolvedSize.y / 2, 0);
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geometry),
+    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 })
+  );
+  mesh.add(edges);
+  const selectionProxyMaterial = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    depthTest: false
+  });
+  const selectionProxy = new THREE.Mesh(createSelectionProxyGeometry(resolvedSize), selectionProxyMaterial);
+  selectionProxy.name = 'selection-proxy';
+  selectionProxy.userData.isSelectionProxy = true;
+  mesh.add(selectionProxy);
+  return { mesh, color: baseColor, shape, size: { ...resolvedSize } };
 }
 
 function parseNumberField(value, label, { min = -Infinity, max = Infinity } = {}) {
@@ -3076,6 +2711,8 @@ function initScene() {
   ensureCogVisual();
 
   raycaster = new THREE.Raycaster();
+  raycaster.params.Line = raycaster.params.Line || {};
+  raycaster.params.Line.threshold = 0.1;
   pointer = new THREE.Vector2();
   dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
@@ -4343,7 +3980,14 @@ function addModuleInstance(moduleId, options = {}) {
 function selectModule(instance) {
   state.selected = instance;
   state.modules.forEach((mod) => {
-    setModuleHighlight(mod, mod === instance);
+    mod.mesh.children.forEach((child) => {
+      if (child.userData && child.userData.isSelectionProxy) {
+        return;
+      }
+      if (child.material && child.material.opacity !== undefined) {
+        child.material.opacity = mod === instance ? 0.85 : 0.4;
+      }
+    });
   });
   updateModuleList();
   updateSelectionDetails();
@@ -4646,7 +4290,7 @@ function intersectModules(event) {
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
   const meshes = state.modules.map((mod) => mod.mesh);
-  return raycaster.intersectObjects(meshes, false);
+  return raycaster.intersectObjects(meshes, true);
 }
 
 function moduleFootprintHalfExtents(mod) {
