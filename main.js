@@ -30,6 +30,7 @@ function createWindow() {
     backgroundColor: '#10131a',
     autoHideMenuBar: true,
     webPreferences: {
+      sandbox: true,
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, 'preload.js')
@@ -48,7 +49,7 @@ function createWindow() {
     logError('Renderer process terminated', details);
   });
 
-  win.loadFile('index.html').catch((error) => {
+  win.loadFile(path.join(__dirname, 'index.html')).catch((error) => {
     logError('Failed to load index.html', error);
   });
 }
