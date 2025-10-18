@@ -211,6 +211,34 @@ function parseColorValue(value, fallback) {
   return parseInt(sanitized, 16);
 }
 
+function toHexColor(value, fallback) {
+  if (value === undefined || value === null || Number.isNaN(Number(value))) {
+    return fallback;
+  }
+  const clamped = Math.max(0, Math.min(0xffffff, Number(value)));
+  return `#${clamped.toString(16).padStart(6, '0')}`;
+}
+
+function setOptionalFieldValue(form, fieldName, value) {
+  if (!form) return;
+  const input = form.querySelector(`[name="${fieldName}"]`);
+  if (!input) return;
+  const toggle = input.id ? form.querySelector(`[data-field-toggle="${input.id}"]`) : null;
+  if (value === null || value === undefined) {
+    input.value = '';
+    if (toggle) {
+      toggle.checked = false;
+      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  } else {
+    input.value = value;
+    if (toggle) {
+      toggle.checked = true;
+      toggle.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+  }
+}
+
 function sanitizeChassisDefinition(definition) {
   const sanitized = {
     id: definition.id || `custom-chassis-${Date.now()}`,
@@ -311,6 +339,167 @@ function closeInlineForm(button, form, reset = false) {
   setFormCollapsed(button, form, true);
   if (reset) {
     form.reset();
+  }
+}
+
+function resetChassisFormState() {
+  if (!ui.chassisForm) return;
+  ui.chassisForm.dataset.mode = 'create';
+  delete ui.chassisForm.dataset.targetId;
+  const submitButton = ui.chassisForm.querySelector('button[type="submit"]');
+  if (submitButton) {
+    submitButton.textContent = 'Enregistrer';
+  }
+}
+
+function populateChassisForm(chassis) {
+  if (!ui.chassisForm) return;
+  const form = ui.chassisForm;
+  const setValue = (selector, value) => {
+    const input = form.querySelector(selector);
+    if (input) {
+      input.value = value !== undefined && value !== null ? value : '';
+    }
+  };
+
+  setValue('#chassis-name', chassis.name ?? '');
+  setValue('#chassis-length', chassis.length ?? '');
+  setValue('#chassis-width', chassis.width ?? '');
+  setValue('#chassis-height', chassis.height ?? '');
+  setValue('#chassis-mass-input', chassis.mass ?? '');
+  setValue('#chassis-ptac-input', chassis.ptac ?? '');
+  setValue('#chassis-wheelbase-input', chassis.wheelbase ?? '');
+  setValue('#chassis-front-axle', chassis.frontAxleOffset ?? '');
+
+  setOptionalFieldValue(form, 'payload', chassis.payload);
+  setOptionalFieldValue(form, 'maxTowableBraked', chassis.maxTowableBraked);
+  setOptionalFieldValue(form, 'maxAuthorizedWeight', chassis.maxAuthorizedWeight);
+  setOptionalFieldValue(form, 'overallWidthMirrors', chassis.overallWidthMirrors);
+  setOptionalFieldValue(form, 'heightUnladen', chassis.heightUnladen);
+  setOptionalFieldValue(form, 'groundClearanceLoaded', chassis.groundClearanceLoaded);
+  setOptionalFieldValue(form, 'floorHeightUnladen', chassis.floorHeightUnladen);
+  setOptionalFieldValue(form, 'overallLengthMM', chassis.overallLengthMM);
+  setOptionalFieldValue(form, 'overallWidthMM', chassis.overallWidthMM);
+  setOptionalFieldValue(form, 'overallHeightMM', chassis.overallHeightMM);
+  setOptionalFieldValue(form, 'maxLoadingLength', chassis.maxLoadingLength);
+  setOptionalFieldValue(form, 'rearOverhang', chassis.rearOverhang);
+  setOptionalFieldValue(form, 'heightWithRack', chassis.heightWithRack);
+  setOptionalFieldValue(form, 'frontOverhang', chassis.frontOverhang);
+  setOptionalFieldValue(form, 'rearOpeningHeight', chassis.rearOpeningHeight);
+  setOptionalFieldValue(form, 'cargoVolume', chassis.cargoVolume);
+  setOptionalFieldValue(form, 'interiorWidthWheelarches', chassis.interiorWidthWheelarches);
+  setOptionalFieldValue(form, 'sideDoorEntryWidth', chassis.sideDoorEntryWidth);
+  setOptionalFieldValue(form, 'rearDoorLowerEntryWidth', chassis.rearDoorLowerEntryWidth);
+  setOptionalFieldValue(form, 'interiorHeight', chassis.interiorHeight);
+
+  const colorInput = form.querySelector('#chassis-color');
+  if (colorInput) {
+    colorInput.value = toHexColor(chassis.color ?? 0x6b7a8f, '#6b7a8f');
+  }
+}
+
+function startChassisEdit(chassis) {
+  if (!ui.chassisForm || !ui.btnAddChassis) return;
+  ui.chassisForm.reset();
+  ui.chassisForm.dataset.mode = 'edit';
+  ui.chassisForm.dataset.targetId = chassis.id;
+  const submitButton = ui.chassisForm.querySelector('button[type="submit"]');
+  if (submitButton) {
+    submitButton.textContent = 'Mettre à jour';
+  }
+  populateChassisForm(chassis);
+  setFormCollapsed(ui.btnAddChassis, ui.chassisForm, false);
+}
+
+function resetModuleFormState() {
+  if (!ui.moduleForm) return;
+  ui.moduleForm.dataset.mode = 'create';
+  delete ui.moduleForm.dataset.targetId;
+  const submitButton = ui.moduleForm.querySelector('button[type="submit"]');
+  if (submitButton) {
+    submitButton.textContent = 'Enregistrer';
+  }
+}
+
+function populateModuleForm(definition) {
+  if (!ui.moduleForm) return;
+  const form = ui.moduleForm;
+  const setValue = (selector, value) => {
+    const input = form.querySelector(selector);
+    if (input) {
+      input.value = value !== undefined && value !== null ? value : '';
+    }
+  };
+
+  setValue('#module-name', definition.name ?? '');
+  setValue('#module-type', definition.type ?? '');
+  setValue('#module-length', definition.size?.z ?? definition.sizeZ ?? '');
+  setValue('#module-width', definition.size?.x ?? definition.sizeX ?? '');
+  setValue('#module-height', definition.size?.y ?? definition.sizeY ?? '');
+  setValue('#module-mass', definition.massEmpty ?? definition.mass ?? '');
+  setValue('#module-volume', definition.fluidVolume ?? definition.volume ?? '');
+  setValue('#module-fill', definition.defaultFill ?? definition.fill ?? 0);
+  setValue('#module-density', definition.density ?? 1000);
+
+  const colorInput = form.querySelector('#module-color');
+  if (colorInput) {
+    colorInput.value = toHexColor(definition.color ?? 0x2c7ef4, '#2c7ef4');
+  }
+}
+
+function startModuleEdit(definition) {
+  if (!ui.moduleForm || !ui.btnAddModule) return;
+  ui.moduleForm.reset();
+  ui.moduleForm.dataset.mode = 'edit';
+  ui.moduleForm.dataset.targetId = definition.id;
+  const submitButton = ui.moduleForm.querySelector('button[type="submit"]');
+  if (submitButton) {
+    submitButton.textContent = 'Mettre à jour';
+  }
+  populateModuleForm(definition);
+  setFormCollapsed(ui.btnAddModule, ui.moduleForm, false);
+}
+
+function applyModuleDefinitionUpdate(definition) {
+  let updated = false;
+  state.modules.forEach((mod) => {
+    if (mod.definitionId !== definition.id) {
+      return;
+    }
+    updated = true;
+    mod.type = definition.type;
+    mod.name = definition.name;
+    mod.massEmpty = definition.massEmpty;
+    mod.fluidVolume = definition.fluidVolume;
+    mod.density = definition.density;
+    mod.size = { ...definition.size };
+    mod.fill = Math.min(100, Math.max(0, mod.fill ?? definition.defaultFill ?? 0));
+    const color = definition.color !== undefined ? definition.color : 0x777777;
+    mod.color = color;
+    if (mod.mesh && mod.mesh.material) {
+      mod.mesh.material.color.setHex(color);
+      mod.mesh.material.metalness = definition.type === 'Tank' ? 0.6 : 0.2;
+      mod.mesh.material.roughness = 0.45;
+    }
+    if (mod.mesh && mod.mesh.geometry) {
+      mod.mesh.geometry.dispose();
+      const newGeometry = new THREE.BoxGeometry(definition.size.x, definition.size.y, definition.size.z);
+      mod.mesh.geometry = newGeometry;
+      mod.mesh.position.y = definition.size.y / 2;
+      mod.mesh.children.forEach((child) => {
+        if (child.isLineSegments && child.geometry) {
+          child.geometry.dispose();
+          child.geometry = new THREE.EdgesGeometry(newGeometry);
+        }
+      });
+    }
+  });
+
+  if (updated) {
+    updateModuleList();
+    updateSelectionDetails();
+    updateAnalysis();
+    pushHistory();
   }
 }
 
@@ -515,9 +704,13 @@ function initUI() {
   ui.modalOk = document.getElementById('modal-ok');
   ui.fileInput = document.getElementById('file-input');
   ui.btnAddChassis = document.getElementById('btn-add-chassis');
+  ui.btnEditChassis = document.getElementById('btn-edit-chassis');
   ui.chassisForm = document.getElementById('chassis-form');
   ui.btnAddModule = document.getElementById('btn-add-module');
   ui.moduleForm = document.getElementById('module-form');
+
+  resetChassisFormState();
+  resetModuleFormState();
 
   setFormCollapsed(ui.btnAddChassis, ui.chassisForm, true);
   setFormCollapsed(ui.btnAddModule, ui.moduleForm, true);
@@ -560,33 +753,86 @@ function populateModuleButtons() {
   if (!ui.moduleButtons) return;
   ui.moduleButtons.innerHTML = '';
   moduleCatalog.forEach((module) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.textContent = `${module.type} - ${module.name}`;
-    btn.addEventListener('click', () => {
+    const row = document.createElement('div');
+    row.className = 'module-button-row';
+
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.classList.add('module-add-button');
+    addBtn.textContent = `${module.type} - ${module.name}`;
+    addBtn.addEventListener('click', () => {
       addModuleInstance(module.id);
     });
-    ui.moduleButtons.appendChild(btn);
+
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.classList.add('ghost', 'module-edit-button');
+    editBtn.textContent = 'Modifier';
+    editBtn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      startModuleEdit(module);
+    });
+
+    row.appendChild(addBtn);
+    row.appendChild(editBtn);
+    ui.moduleButtons.appendChild(row);
   });
 }
 
 function bindUIEvents() {
   if (ui.btnAddChassis && ui.chassisForm) {
-    ui.btnAddChassis.addEventListener('click', () => toggleInlineForm(ui.btnAddChassis, ui.chassisForm));
+    ui.btnAddChassis.addEventListener('click', () => {
+      const isCollapsed = ui.chassisForm.classList.contains('is-collapsed');
+      if (isCollapsed) {
+        ui.chassisForm.reset();
+        resetChassisFormState();
+      }
+      toggleInlineForm(ui.btnAddChassis, ui.chassisForm);
+      if (!isCollapsed) {
+        resetChassisFormState();
+        ui.chassisForm.reset();
+      }
+    });
     const cancelButton = ui.chassisForm.querySelector('[data-close-form]');
     if (cancelButton) {
       cancelButton.addEventListener('click', () => {
+        resetChassisFormState();
         closeInlineForm(ui.btnAddChassis, ui.chassisForm, true);
       });
     }
     ui.chassisForm.addEventListener('submit', handleCustomChassisSubmit);
   }
 
+  if (ui.btnEditChassis) {
+    ui.btnEditChassis.addEventListener('click', () => {
+      if (!ui.chassisSelect) return;
+      const selectedId = ui.chassisSelect.value;
+      const chassis = chassisCatalog.find((item) => item.id === selectedId);
+      if (!chassis) {
+        showModal('Information', 'Veuillez sélectionner un châssis à modifier.');
+        return;
+      }
+      startChassisEdit(chassis);
+    });
+  }
+
   if (ui.btnAddModule && ui.moduleForm) {
-    ui.btnAddModule.addEventListener('click', () => toggleInlineForm(ui.btnAddModule, ui.moduleForm));
+    ui.btnAddModule.addEventListener('click', () => {
+      const isCollapsed = ui.moduleForm.classList.contains('is-collapsed');
+      if (isCollapsed) {
+        ui.moduleForm.reset();
+        resetModuleFormState();
+      }
+      toggleInlineForm(ui.btnAddModule, ui.moduleForm);
+      if (!isCollapsed) {
+        resetModuleFormState();
+        ui.moduleForm.reset();
+      }
+    });
     const cancelButton = ui.moduleForm.querySelector('[data-close-form]');
     if (cancelButton) {
       cancelButton.addEventListener('click', () => {
+        resetModuleFormState();
         closeInlineForm(ui.btnAddModule, ui.moduleForm, true);
       });
     }
@@ -732,7 +978,16 @@ function handleCustomChassisSubmit(event) {
     const rearDoorLowerEntryWidth = parseOptionalNumberField(data.get('rearDoorLowerEntryWidth'), "Largeur d'entrée inférieure de porte(s) arrière(s)", { min: 0 });
     const interiorHeight = parseOptionalNumberField(data.get('interiorHeight'), 'Hauteur intérieure sous pavillon', { min: 0 });
     const color = parseColorValue(data.get('color'), 0x6b7a8f);
-    const id = `custom-chassis-${Date.now()}`;
+    const isEdit = form.dataset.mode === 'edit';
+    let existing = null;
+    if (isEdit) {
+      const targetId = form.dataset.targetId;
+      existing = chassisCatalog.find((item) => item.id === targetId);
+      if (!existing) {
+        throw new Error("Le châssis sélectionné n'existe plus.");
+      }
+    }
+    const id = isEdit && existing ? existing.id : `custom-chassis-${Date.now()}`;
     const chassis = addChassisDefinition({
       id,
       name,
@@ -764,11 +1019,12 @@ function handleCustomChassisSubmit(event) {
       rearDoorLowerEntryWidth,
       interiorHeight,
       color,
-      isCustom: true
+      isCustom: isEdit && existing ? (existing.isCustom !== undefined ? existing.isCustom : false) : true
     });
     const catalogChassis = chassisCatalog.find((item) => item.id === chassis.id) || chassis;
     ui.chassisSelect.value = catalogChassis.id;
     applyChassis(catalogChassis);
+    resetChassisFormState();
     closeInlineForm(ui.btnAddChassis, ui.chassisForm, true);
     pushHistory();
   } catch (error) {
@@ -795,7 +1051,16 @@ function handleCustomModuleSubmit(event) {
     const defaultFill = parseNumberField(data.get('defaultFill'), 'Remplissage par défaut', { min: 0, max: 100 });
     const density = parseNumberField(data.get('density'), 'Densité', { min: 1 });
     const color = parseColorValue(data.get('color'), 0x2c7ef4);
-    const id = `custom-module-${Date.now()}`;
+    const isEdit = form.dataset.mode === 'edit';
+    let existing = null;
+    if (isEdit) {
+      const targetId = form.dataset.targetId;
+      existing = moduleCatalog.find((item) => item.id === targetId);
+      if (!existing) {
+        throw new Error("Le module sélectionné n'existe plus.");
+      }
+    }
+    const id = isEdit && existing ? existing.id : `custom-module-${Date.now()}`;
     const definition = addModuleDefinition({
       id,
       type,
@@ -806,10 +1071,17 @@ function handleCustomModuleSubmit(event) {
       defaultFill,
       density,
       color,
-      isCustom: true
+      isCustom: isEdit && existing ? (existing.isCustom !== undefined ? existing.isCustom : false) : true
     });
-    closeInlineForm(ui.btnAddModule, ui.moduleForm, true);
-    addModuleInstance(definition.id);
+    if (isEdit) {
+      applyModuleDefinitionUpdate(definition);
+      resetModuleFormState();
+      closeInlineForm(ui.btnAddModule, ui.moduleForm, true);
+    } else {
+      resetModuleFormState();
+      closeInlineForm(ui.btnAddModule, ui.moduleForm, true);
+      addModuleInstance(definition.id);
+    }
   } catch (error) {
     showModal('Erreur', error.message);
   }
