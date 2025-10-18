@@ -1,25 +1,43 @@
 {
   "appId": "com.aero.depollution",
   "productName": "Simulateur_Depollution",
+
   "directories": {
-    "output": "dist"
+    "output": "dist",
+    "buildResources": "build"
   },
+
   "files": [
     "**/*",
-    "!dist",
+    "!dist/**",
     "!node_modules/.cache/**"
   ],
-  "asar": false,
+
+  "asar": true,
+  "asarUnpack": [
+    "**/*.node",
+    "resources/**",
+    "bin/**"
+  ],
+
+  "compression": "maximum",
+
+  "forceCodeSigning": false,
+
   "win": {
     "target": [
-      {
-        "target": "portable",
-        "arch": ["x64"]
-      }
+      { "target": "portable", "arch": ["x64"] }
     ],
-    "artifactName": "Simulateur_Depollution.exe"
+    "artifactName": "Simulateur_Depollution.exe",
+    "icon": "build/icon.ico",
+    "sign": false,
+    "signDlls": false,
+    "publisherName": "Aero Dépollution"
   },
+
   "portable": {
     "splashImage": null
   }
 }
+
+
