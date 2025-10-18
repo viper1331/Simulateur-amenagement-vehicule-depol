@@ -109,6 +109,7 @@ const moduleCatalog = [
     id: 'tank-medium',
     type: 'Tank',
     name: 'Cuve 5m³',
+    shape: 'box',
     size: { x: 1.6, y: 1.6, z: 2.4 },
     color: 0x2c7ef4,
     massEmpty: 680,
@@ -121,6 +122,7 @@ const moduleCatalog = [
     id: 'tank-compact',
     type: 'Tank',
     name: 'Cuve 3m³',
+    shape: 'box',
     size: { x: 1.4, y: 1.4, z: 2.0 },
     color: 0x368dfc,
     massEmpty: 520,
@@ -133,6 +135,7 @@ const moduleCatalog = [
     id: 'pump-high',
     type: 'Pump',
     name: 'Pompe haute pression',
+    shape: 'box',
     size: { x: 1.2, y: 1.4, z: 1.6 },
     color: 0xff6b3d,
     massEmpty: 320,
@@ -145,6 +148,7 @@ const moduleCatalog = [
     id: 'hosereel-duo',
     type: 'HoseReel',
     name: 'Enrouleur double',
+    shape: 'box',
     size: { x: 1.4, y: 1.2, z: 1.2 },
     color: 0xffc13d,
     massEmpty: 210,
@@ -157,6 +161,7 @@ const moduleCatalog = [
     id: 'cabinet-large',
     type: 'Cabinet',
     name: 'Armoire équipement',
+    shape: 'box',
     size: { x: 1.6, y: 2.0, z: 1.0 },
     color: 0x9b6ef3,
     massEmpty: 180,
@@ -169,6 +174,7 @@ const moduleCatalog = [
     id: 'cabinet-ops',
     type: 'Cabinet',
     name: 'Pupitre opérateur',
+    shape: 'box',
     size: { x: 1.0, y: 1.5, z: 1.2 },
     color: 0xb58ff9,
     massEmpty: 140,
@@ -178,6 +184,73 @@ const moduleCatalog = [
     containsFluid: false
   }
 ];
+
+const MODULE_SHAPES = ['box', 'cylinder'];
+
+function normalizeModuleShape(value) {
+  if (!value && value !== 0) {
+    return 'box';
+  }
+  const normalized = value.toString().trim().toLowerCase();
+  return MODULE_SHAPES.includes(normalized) ? normalized : 'box';
+}
+
+function createModuleGeometry(shape, size) {
+  const safeSize = {
+    x: Number(size?.x) || 0.2,
+    y: Number(size?.y) || 0.2,
+    z: Number(size?.z) || 0.2
+  };
+  if (shape === 'cylinder') {
+    const diameter = Math.max(safeSize.x, safeSize.z);
+    const radius = Math.max(diameter / 2, 0.05);
+    return new THREE.CylinderGeometry(radius, radius, Math.max(safeSize.y, 0.05), 32);
+  }
+  return new THREE.BoxGeometry(Math.max(safeSize.x, 0.05), Math.max(safeSize.y, 0.05), Math.max(safeSize.z, 0.05));
+}
+
+function updateMeshGeometryFromDefinition(mesh, definition) {
+  if (!mesh) return;
+  const shape = normalizeModuleShape(definition.shape);
+  const geometry = createModuleGeometry(shape, definition.size);
+  if (mesh.geometry) {
+    mesh.geometry.dispose();
+  }
+  mesh.geometry = geometry;
+  mesh.position.y = definition.size.y / 2;
+  mesh.children.forEach((child) => {
+    if (child.isLineSegments) {
+      if (child.geometry) {
+        child.geometry.dispose();
+      }
+      child.geometry = new THREE.EdgesGeometry(geometry);
+    }
+  });
+}
+
+function createModuleMesh(definition, { size, color } = {}) {
+  const resolvedSize = size ? { ...definition.size, ...size } : definition.size;
+  const shape = normalizeModuleShape(definition.shape);
+  const geometry = createModuleGeometry(shape, resolvedSize);
+  const baseColor = color !== undefined
+    ? color
+    : (definition.color !== undefined ? definition.color : 0x777777);
+  const material = new THREE.MeshStandardMaterial({
+    color: baseColor,
+    metalness: (definition.type || '').toLowerCase() === 'tank' ? 0.6 : 0.2,
+    roughness: 0.45
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.position.set(0, resolvedSize.y / 2, 0);
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geometry),
+    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 })
+  );
+  mesh.add(edges);
+  return { mesh, color: baseColor, shape, size: { ...resolvedSize } };
+}
 
 function parseNumberField(value, label, { min = -Infinity, max = Infinity } = {}) {
   const numberValue = Number(value);
@@ -365,10 +438,16 @@ function computeChassisSpatialMetrics(chassis) {
 }
 
 function sanitizeModuleDefinition(definition) {
+  const shape = normalizeModuleShape(definition.shape);
   const sizeSource = definition.size || definition;
-  const sizeX = Number(sizeSource.x ?? sizeSource.sizeX ?? sizeSource.width ?? 0.2) || 0.2;
-  const sizeY = Number(sizeSource.y ?? sizeSource.sizeY ?? sizeSource.height ?? 0.2) || 0.2;
-  const sizeZ = Number(sizeSource.z ?? sizeSource.sizeZ ?? sizeSource.length ?? 0.2) || 0.2;
+  let sizeX = Number(sizeSource.x ?? sizeSource.sizeX ?? sizeSource.width ?? 0.2) || 0.2;
+  let sizeY = Number(sizeSource.y ?? sizeSource.sizeY ?? sizeSource.height ?? 0.2) || 0.2;
+  let sizeZ = Number(sizeSource.z ?? sizeSource.sizeZ ?? sizeSource.length ?? 0.2) || 0.2;
+  if (shape === 'cylinder') {
+    const diameter = Math.max(sizeX, sizeZ);
+    sizeX = diameter;
+    sizeZ = diameter;
+  }
   const fluidVolumeRaw = Math.max(0, Number(definition.fluidVolume ?? definition.volume ?? 0) || 0);
   const containsFluid = definition.containsFluid !== undefined
     ? Boolean(definition.containsFluid)
@@ -381,6 +460,7 @@ function sanitizeModuleDefinition(definition) {
     type: definition.type || 'Custom',
     name: definition.name || 'Module personnalisé',
     size: { x: sizeX, y: sizeY, z: sizeZ },
+    shape,
     color: definition.color !== undefined ? definition.color : 0x2c7ef4,
     massEmpty: Number(definition.massEmpty ?? definition.mass ?? 0) || 0,
     fluidVolume: containsFluid ? fluidVolumeRaw : 0,
@@ -527,6 +607,9 @@ function resetModuleFormState() {
   if (submitButton) {
     submitButton.textContent = 'Enregistrer';
   }
+  if (ui.moduleShapeSelect) {
+    ui.moduleShapeSelect.value = 'box';
+  }
   if (ui.moduleFluidToggle) {
     ui.moduleFluidToggle.checked = false;
   }
@@ -545,6 +628,7 @@ function populateModuleForm(definition) {
 
   setValue('#module-name', definition.name ?? '');
   setValue('#module-type', definition.type ?? '');
+  setValue('#module-shape', normalizeModuleShape(definition.shape));
   setValue('#module-length', definition.size?.z ?? definition.sizeZ ?? '');
   setValue('#module-width', definition.size?.x ?? definition.sizeX ?? '');
   setValue('#module-height', definition.size?.y ?? definition.sizeY ?? '');
@@ -595,6 +679,7 @@ function applyModuleDefinitionUpdate(definition) {
     mod.density = mod.containsFluid ? definition.density : 0;
     mod.size = { ...definition.size };
     mod.fill = mod.containsFluid ? Math.min(100, Math.max(0, mod.fill ?? definition.defaultFill ?? 0)) : 0;
+    mod.shape = normalizeModuleShape(definition.shape);
     const color = definition.color !== undefined ? definition.color : 0x777777;
     mod.color = color;
     if (mod.mesh && mod.mesh.material) {
@@ -602,18 +687,7 @@ function applyModuleDefinitionUpdate(definition) {
       mod.mesh.material.metalness = definition.type === 'Tank' ? 0.6 : 0.2;
       mod.mesh.material.roughness = 0.45;
     }
-    if (mod.mesh && mod.mesh.geometry) {
-      mod.mesh.geometry.dispose();
-      const newGeometry = new THREE.BoxGeometry(definition.size.x, definition.size.y, definition.size.z);
-      mod.mesh.geometry = newGeometry;
-      mod.mesh.position.y = definition.size.y / 2;
-      mod.mesh.children.forEach((child) => {
-        if (child.isLineSegments && child.geometry) {
-          child.geometry.dispose();
-          child.geometry = new THREE.EdgesGeometry(newGeometry);
-        }
-      });
-    }
+    updateMeshGeometryFromDefinition(mod.mesh, definition);
 
     updateModuleLabel(mod);
     if (mod.mesh) {
@@ -742,6 +816,14 @@ function formatModuleDimensions(size) {
     return 'Dimensions inconnues';
   }
   return `${size.x.toFixed(2)} m × ${size.y.toFixed(2)} m × ${size.z.toFixed(2)} m`;
+}
+
+function formatModuleShape(shape) {
+  const normalized = normalizeModuleShape(shape);
+  if (normalized === 'cylinder') {
+    return 'Cylindre';
+  }
+  return 'Parallélépipède';
 }
 
 function formatMass(value) {
@@ -1132,6 +1214,7 @@ function initUI() {
   ui.btnAddModule = document.getElementById('btn-add-module');
   ui.moduleForm = document.getElementById('module-form');
   ui.moduleFluidToggle = document.getElementById('module-has-fluid');
+  ui.moduleShapeSelect = document.getElementById('module-shape');
 
   resetChassisFormState();
   resetModuleFormState();
@@ -1263,6 +1346,7 @@ function populateModuleButtons() {
 
       const meta = document.createElement('div');
       meta.className = 'module-card-meta';
+      meta.appendChild(createMetaLine('Forme', formatModuleShape(module.shape)));
       meta.appendChild(createMetaLine('Masse', formatMass(module.massEmpty)));
       meta.appendChild(createMetaLine('Dimensions', formatModuleDimensions(module.size)));
 
@@ -1614,6 +1698,7 @@ function handleCustomModuleSubmit(event) {
       throw new Error('Veuillez renseigner un nom pour le module.');
     }
     const type = (data.get('type') || '').toString().trim() || 'Custom';
+    const shape = normalizeModuleShape(data.get('shape') || 'box');
     const sizeX = parseNumberField(data.get('sizeX'), 'Largeur', { min: 0.1 });
     const sizeY = parseNumberField(data.get('sizeY'), 'Hauteur', { min: 0.1 });
     const sizeZ = parseNumberField(data.get('sizeZ'), 'Longueur', { min: 0.1 });
@@ -1642,6 +1727,7 @@ function handleCustomModuleSubmit(event) {
     const definition = addModuleDefinition({
       id,
       type,
+      shape,
       name,
       size: { x: sizeX, y: sizeY, z: sizeZ },
       massEmpty,
@@ -1789,25 +1875,7 @@ function addModuleInstance(moduleId) {
   const definition = moduleCatalog.find((m) => m.id === moduleId);
   if (!definition) return;
 
-  const color = definition.color !== undefined ? definition.color : 0x777777;
-  const geometry = new THREE.BoxGeometry(definition.size.x, definition.size.y, definition.size.z);
-  const material = new THREE.MeshStandardMaterial({
-    color,
-    metalness: definition.type === 'Tank' ? 0.6 : 0.2,
-    roughness: 0.45
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-
-  const y = definition.size.y / 2;
-  mesh.position.set(0, y, 0);
-
-  const edges = new THREE.LineSegments(
-    new THREE.EdgesGeometry(geometry),
-    new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 })
-  );
-  mesh.add(edges);
+  const { mesh, color } = createModuleMesh(definition);
 
   const containsFluid = Boolean(definition.containsFluid);
   const initialFill = containsFluid ? Math.min(100, Math.max(0, definition.defaultFill ?? 0)) : 0;
@@ -1817,6 +1885,7 @@ function addModuleInstance(moduleId) {
     type: definition.type,
     name: definition.name,
     mesh,
+    shape: normalizeModuleShape(definition.shape),
     fill: initialFill,
     massEmpty: definition.massEmpty,
     fluidVolume: containsFluid ? definition.fluidVolume : 0,
@@ -2357,6 +2426,7 @@ function serializeState() {
       id: mod.definitionId,
       type: mod.type,
       name: mod.name,
+      shape: mod.shape,
       fill: mod.fill,
       massEmpty: mod.massEmpty,
       fluidVolume: mod.fluidVolume,
@@ -2416,6 +2486,7 @@ function restoreState(data) {
       definition = addModuleDefinition({
         id: item.id,
         type: item.type || 'Custom',
+        shape: item.shape,
         name: item.name || 'Module personnalisé',
         size: item.size,
         massEmpty: item.massEmpty,
@@ -2429,24 +2500,18 @@ function restoreState(data) {
     }
     const size = item.size || definition.size;
     if (!size) return;
-    const geometry = new THREE.BoxGeometry(size.x, size.y, size.z);
     const baseColor = item.color !== undefined ? item.color : (definition.color !== undefined ? definition.color : 0x777777);
-    const material = new THREE.MeshStandardMaterial({
-      color: baseColor,
-      metalness: (definition.type || '').toLowerCase() === 'tank' ? 0.6 : 0.2,
-      roughness: 0.45
+    const resolvedShape = normalizeModuleShape(item.shape || definition.shape);
+    const resolvedSize = { ...definition.size, ...size };
+    const { mesh } = createModuleMesh({
+      ...definition,
+      shape: resolvedShape,
+      size: resolvedSize,
+      color: baseColor
     });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
     const positionArray = item.position && item.position.length === 3 ? item.position : [0, size.y / 2, 0];
     mesh.position.fromArray(positionArray);
     mesh.rotation.y = item.rotationY || 0;
-    const edges = new THREE.LineSegments(
-      new THREE.EdgesGeometry(geometry),
-      new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4 })
-    );
-    mesh.add(edges);
     const containsFluid = item.containsFluid !== undefined ? item.containsFluid : definition.containsFluid;
     const instanceFill = containsFluid
       ? Math.min(100, Math.max(0, item.fill ?? definition.defaultFill ?? 0))
@@ -2459,6 +2524,7 @@ function restoreState(data) {
       type: item.type || definition.type,
       name: item.name || definition.name,
       mesh,
+      shape: resolvedShape,
       fill: instanceFill,
       massEmpty: item.massEmpty ?? definition.massEmpty,
       fluidVolume: instanceFluidVolume,
