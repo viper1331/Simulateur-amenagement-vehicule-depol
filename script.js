@@ -332,18 +332,24 @@ const history = {
   redo: []
 };
 
+const DEFAULT_ORBIT_AZIMUTH = Math.PI / 4;
+const DEFAULT_ORBIT_POLAR = Math.PI / 4;
+const DEFAULT_ORBIT_RADIUS = 14;
+const DEFAULT_ORBIT_TARGET_Y = 1.2;
+
 let scene, camera, renderer, grid, hemiLight, dirLight;
 let raycaster, pointer, dragPlane, dragActive = false;
 let dragOffset = new THREE.Vector3();
+let dragMode = 'horizontal';
 let workspaceBounds = new THREE.Box3();
 let walkwayMesh, chassisGroup, gabaritGroup;
 const orbitState = {
   active: false,
   pointer: new THREE.Vector2(),
-  azimuth: Math.PI / 4,
-  polar: Math.PI / 4,
-  radius: 14,
-  target: new THREE.Vector3(0, 1.2, 0)
+  azimuth: DEFAULT_ORBIT_AZIMUTH,
+  polar: DEFAULT_ORBIT_POLAR,
+  radius: DEFAULT_ORBIT_RADIUS,
+  target: new THREE.Vector3(0, DEFAULT_ORBIT_TARGET_Y, 0)
 };
 
 const ui = {};
@@ -446,6 +452,7 @@ function initUI() {
   ui.walkwayRange = document.getElementById('walkway-width');
   ui.walkwayValue = document.getElementById('walkway-width-value');
   ui.walkwayToggle = document.getElementById('walkway-toggle');
+  ui.btnRecenterView = document.getElementById('btn-recenter-view');
   ui.detailName = document.getElementById('detail-name');
   ui.detailMass = document.getElementById('detail-mass');
   ui.detailCapacity = document.getElementById('detail-capacity');
@@ -581,6 +588,12 @@ function bindUIEvents() {
     updateAnalysis();
     pushHistory();
   });
+
+  if (ui.btnRecenterView) {
+    ui.btnRecenterView.addEventListener('click', () => {
+      resetOrbitToChassis();
+    });
+  }
 
   ui.detailFill.addEventListener('input', () => {
     ui.detailFillValue.textContent = `${ui.detailFill.value}%`;
@@ -797,9 +810,7 @@ function applyChassis(chassis) {
   updateWorkspaceBounds(chassis);
   relocateWalkway();
   refreshChassisInfo();
-  orbitState.target.set(0, chassis.height / 2, 0);
-  orbitState.radius = Math.max(6, chassis.length * 0.9);
-  updateCameraFromOrbit();
+  resetOrbitToChassis();
   relocateModulesInsideBounds();
   updateAnalysis();
 }
@@ -955,10 +966,22 @@ function onPointerDown(event) {
       selectModule(module);
       if (state.mode === 'translate' || state.mode === 'rotate') {
         dragActive = true;
-        dragPlane.set(new THREE.Vector3(0, 1, 0), 0);
+        dragMode = 'horizontal';
+        if (state.mode === 'translate' && event.shiftKey) {
+          dragMode = 'vertical';
+        }
+        if (state.mode === 'translate' && dragMode === 'vertical') {
+          dragPlane.set(new THREE.Vector3(0, 0, 1), -module.mesh.position.z);
+        } else {
+          dragPlane.set(new THREE.Vector3(0, 1, 0), 0);
+        }
         const point = getPlaneIntersection(event, dragPlane);
         if (point) {
-          dragOffset.copy(module.mesh.position).sub(point);
+          if (state.mode === 'translate' && dragMode === 'vertical') {
+            dragOffset.set(0, module.mesh.position.y - point.y, 0);
+          } else {
+            dragOffset.copy(module.mesh.position).sub(point);
+          }
         }
         renderer.domElement.setPointerCapture(event.pointerId);
       }
@@ -982,13 +1005,20 @@ function onPointerMove(event) {
     updateHud(event);
     return;
   }
-  const point = getPlaneIntersection(event, dragPlane);
-  if (!point) return;
   if (state.mode === 'translate') {
-    const target = point.clone().add(dragOffset);
-    target.y = state.selected.mesh.position.y;
-    target.x = snapValue(target.x);
-    target.z = snapValue(target.z);
+    const point = getPlaneIntersection(event, dragPlane);
+    if (!point) return;
+    let target;
+    if (dragMode === 'vertical') {
+      const newY = snapValue(point.y + dragOffset.y);
+      target = state.selected.mesh.position.clone();
+      target.y = newY;
+    } else {
+      target = point.clone().add(dragOffset);
+      target.y = state.selected.mesh.position.y;
+      target.x = snapValue(target.x);
+      target.z = snapValue(target.z);
+    }
     clampToBounds(target, state.selected);
     state.selected.mesh.position.copy(target);
     syncModuleState(state.selected);
@@ -1017,6 +1047,7 @@ function onPointerUp(event) {
   }
   if (dragActive) {
     dragActive = false;
+    dragMode = 'horizontal';
     renderer.domElement.releasePointerCapture(event.pointerId);
     pushHistory();
   }
@@ -1030,9 +1061,12 @@ function onWheel(event) {
 }
 
 function updateHud(event) {
-  const point = getPlaneIntersection(event, dragPlane);
+  const previewPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  const point = getPlaneIntersection(event, previewPlane);
   if (!point) return;
-  ui.hud.innerHTML = `Mode: ${state.mode === 'translate' ? 'Translation' : 'Rotation'}<span>X: ${point.x.toFixed(2)} m</span><span>Z: ${point.z.toFixed(2)} m</span>`;
+  const modeLabel = state.mode === 'translate' ? 'Translation' : 'Rotation';
+  const hint = state.mode === 'translate' ? '<span class="hint">Maintenez Shift pour ajuster la hauteur</span>' : '';
+  ui.hud.innerHTML = `Mode: ${modeLabel}<span>X: ${point.x.toFixed(2)} m</span><span>Y: ${state.selected ? state.selected.mesh.position.y.toFixed(2) : point.y.toFixed(2)} m</span><span>Z: ${point.z.toFixed(2)} m</span>${hint}`;
 }
 
 function getPlaneIntersection(event, plane) {
@@ -1061,6 +1095,19 @@ function updateCameraFromOrbit() {
   camera.lookAt(orbitState.target);
 }
 
+function resetOrbitToChassis() {
+  orbitState.azimuth = DEFAULT_ORBIT_AZIMUTH;
+  orbitState.polar = DEFAULT_ORBIT_POLAR;
+  if (state.chassisData) {
+    orbitState.target.set(0, state.chassisData.height / 2, 0);
+    orbitState.radius = Math.max(6, state.chassisData.length * 0.9);
+  } else {
+    orbitState.target.set(0, DEFAULT_ORBIT_TARGET_Y, 0);
+    orbitState.radius = DEFAULT_ORBIT_RADIUS;
+  }
+  updateCameraFromOrbit();
+}
+
 function intersectModules(event) {
   const rect = renderer.domElement.getBoundingClientRect();
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
@@ -1081,6 +1128,8 @@ function clampToBounds(target, module) {
   const radius = moduleFootprintRadius(module);
   target.x = THREE.MathUtils.clamp(target.x, workspaceBounds.min.x + radius, workspaceBounds.max.x - radius);
   target.z = THREE.MathUtils.clamp(target.z, workspaceBounds.min.z + radius, workspaceBounds.max.z - radius);
+  const halfHeight = module.size.y / 2;
+  target.y = THREE.MathUtils.clamp(target.y, workspaceBounds.min.y + halfHeight, workspaceBounds.max.y - halfHeight);
 }
 
 function syncModuleState(mod) {
