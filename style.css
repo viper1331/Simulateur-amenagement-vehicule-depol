@@ -223,19 +223,30 @@ input[type="range"] {
 }
 
 #module-buttons {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 0.4rem;
 }
 
-#module-buttons button {
+#module-buttons .module-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+#module-buttons .module-add-button {
   background: rgba(62, 166, 255, 0.2);
   border: 1px solid rgba(62, 166, 255, 0.5);
   color: var(--text);
 }
 
-#module-buttons button:hover {
+#module-buttons .module-add-button:hover {
   background: rgba(62, 166, 255, 0.4);
+}
+
+#module-buttons .module-edit-button {
+  padding: 0.35rem 0.6rem;
 }
 
 #module-list {
