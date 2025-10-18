@@ -547,6 +547,8 @@ const state = {
   chassisOpacity: 1,
   walkwayWidth: 0.8,
   walkwayVisible: true,
+  walkwayOffsetX: 0,
+  walkwayOffsetZ: 0,
   modules: [],
   selected: null,
   mode: 'translate',
@@ -575,6 +577,7 @@ const DEFAULT_WALKWAY_LENGTH = 12;
 const WALKWAY_THICKNESS = 0.05;
 const MIN_WALKWAY_WIDTH = 0.4;
 const WALKWAY_SIDE_CLEARANCE = 0.05;
+const WALKWAY_END_CLEARANCE = 0.2;
 const orbitState = {
   active: false,
   pointer: new THREE.Vector2(),
@@ -658,7 +661,8 @@ function getEffectiveWalkwayLength() {
   if (!state.chassisData || !Number.isFinite(state.chassisData.length)) {
     return DEFAULT_WALKWAY_LENGTH;
   }
-  return Math.max(state.chassisData.length, 0.5);
+  const usableLength = state.chassisData.length - WALKWAY_END_CLEARANCE * 2;
+  return Math.max(usableLength, 0.5);
 }
 
 function getEffectiveWalkwayWidth() {
@@ -686,6 +690,65 @@ function syncWalkwayControls(width) {
   ui.walkwayRange.max = nextMax;
   ui.walkwayRange.value = widthMm;
   ui.walkwayValue.textContent = `${widthMm} mm`;
+}
+
+function getWalkwayOffsetLimits(width, length) {
+  let maxX = 0;
+  let maxZ = 0;
+  if (state.chassisData && Number.isFinite(state.chassisData.width)) {
+    const halfChassisWidth = state.chassisData.width / 2;
+    const halfWalkwayWidth = width / 2;
+    maxX = Math.max(halfChassisWidth - halfWalkwayWidth - WALKWAY_SIDE_CLEARANCE, 0);
+  }
+  if (state.chassisData && Number.isFinite(state.chassisData.length)) {
+    const halfChassisLength = state.chassisData.length / 2;
+    const halfWalkwayLength = length / 2;
+    maxZ = Math.max(halfChassisLength - halfWalkwayLength, 0);
+  } else {
+    const halfDefaultLength = DEFAULT_WALKWAY_LENGTH / 2;
+    const halfWalkwayLength = length / 2;
+    maxZ = Math.max(halfDefaultLength - halfWalkwayLength, 0);
+  }
+  return { maxX, maxZ };
+}
+
+function clampWalkwayOffsets(width, length) {
+  const limits = getWalkwayOffsetLimits(width, length);
+  const currentX = Number.isFinite(state.walkwayOffsetX) ? state.walkwayOffsetX : 0;
+  const currentZ = Number.isFinite(state.walkwayOffsetZ) ? state.walkwayOffsetZ : 0;
+  state.walkwayOffsetX = THREE.MathUtils.clamp(currentX, -limits.maxX, limits.maxX);
+  state.walkwayOffsetZ = THREE.MathUtils.clamp(currentZ, -limits.maxZ, limits.maxZ);
+  return limits;
+}
+
+function syncWalkwayPositionControls(width, length, limits) {
+  if (!ui.walkwayOffsetXRange || !ui.walkwayOffsetXValue || !ui.walkwayOffsetZRange || !ui.walkwayOffsetZValue) {
+    return;
+  }
+  const bounds = limits || getWalkwayOffsetLimits(width, length);
+  const limitXmm = Math.round(bounds.maxX * 1000);
+  const limitZmm = Math.round(bounds.maxZ * 1000);
+  const offsetXmm = toMillimeters(state.walkwayOffsetX);
+  const offsetZmm = toMillimeters(state.walkwayOffsetZ);
+
+  ui.walkwayOffsetXRange.min = `${-limitXmm}`;
+  ui.walkwayOffsetXRange.max = `${limitXmm}`;
+  ui.walkwayOffsetXRange.value = `${offsetXmm}`;
+  ui.walkwayOffsetXRange.disabled = limitXmm === 0;
+  ui.walkwayOffsetXValue.textContent = `${offsetXmm.toLocaleString('fr-FR')} mm`;
+
+  ui.walkwayOffsetZRange.min = `${-limitZmm}`;
+  ui.walkwayOffsetZRange.max = `${limitZmm}`;
+  ui.walkwayOffsetZRange.value = `${offsetZmm}`;
+  ui.walkwayOffsetZRange.disabled = limitZmm === 0;
+  ui.walkwayOffsetZValue.textContent = `${offsetZmm.toLocaleString('fr-FR')} mm`;
+}
+
+function applyWalkwayOffset(width, length) {
+  if (!walkwayMesh) return;
+  const limits = clampWalkwayOffsets(width, length);
+  walkwayMesh.position.set(state.walkwayOffsetX, WALKWAY_THICKNESS / 2, state.walkwayOffsetZ);
+  syncWalkwayPositionControls(width, length, limits);
 }
 
 function syncChassisTransparencyControls() {
@@ -735,6 +798,7 @@ function updateWalkway() {
   walkwayMesh.geometry.dispose();
   walkwayMesh.geometry = new THREE.BoxGeometry(width, WALKWAY_THICKNESS, length);
   walkwayMesh.visible = state.walkwayVisible;
+  applyWalkwayOffset(width, length);
 }
 
 function initUI() {
@@ -747,6 +811,10 @@ function initUI() {
   ui.moduleList = document.getElementById('module-list');
   ui.walkwayRange = document.getElementById('walkway-width');
   ui.walkwayValue = document.getElementById('walkway-width-value');
+  ui.walkwayOffsetXRange = document.getElementById('walkway-offset-x');
+  ui.walkwayOffsetXValue = document.getElementById('walkway-offset-x-value');
+  ui.walkwayOffsetZRange = document.getElementById('walkway-offset-z');
+  ui.walkwayOffsetZValue = document.getElementById('walkway-offset-z-value');
   ui.walkwayToggle = document.getElementById('walkway-toggle');
   ui.chassisTransparencyRange = document.getElementById('chassis-transparency');
   ui.chassisTransparencyValue = document.getElementById('chassis-transparency-value');
@@ -795,6 +863,7 @@ function initUI() {
   }
   populateModuleButtons();
   syncWalkwayControls(state.walkwayWidth);
+  syncWalkwayPositionControls(state.walkwayWidth, getEffectiveWalkwayLength());
   syncChassisTransparencyControls();
 
   bindUIEvents();
@@ -937,6 +1006,28 @@ function bindUIEvents() {
   ui.walkwayRange.addEventListener('change', () => {
     pushHistory();
   });
+
+  if (ui.walkwayOffsetXRange) {
+    ui.walkwayOffsetXRange.addEventListener('input', () => {
+      state.walkwayOffsetX = mmToM(Number(ui.walkwayOffsetXRange.value));
+      applyWalkwayOffset(state.walkwayWidth, getEffectiveWalkwayLength());
+      updateAnalysis();
+    });
+    ui.walkwayOffsetXRange.addEventListener('change', () => {
+      pushHistory();
+    });
+  }
+
+  if (ui.walkwayOffsetZRange) {
+    ui.walkwayOffsetZRange.addEventListener('input', () => {
+      state.walkwayOffsetZ = mmToM(Number(ui.walkwayOffsetZRange.value));
+      applyWalkwayOffset(state.walkwayWidth, getEffectiveWalkwayLength());
+      updateAnalysis();
+    });
+    ui.walkwayOffsetZRange.addEventListener('change', () => {
+      pushHistory();
+    });
+  }
 
   ui.walkwayToggle.addEventListener('change', () => {
     state.walkwayVisible = ui.walkwayToggle.checked;
@@ -1243,7 +1334,6 @@ function updateGabaritPlanes(chassis) {
 }
 
 function relocateWalkway() {
-  walkwayMesh.position.set(0, WALKWAY_THICKNESS / 2, 0);
   updateWalkway();
 }
 
@@ -1681,12 +1771,15 @@ function updateAnalysis(forceModal = false) {
 
 function detectWalkwayIssues() {
   const issues = [];
-  const walkwayWidth = state.walkwayWidth;
-  const walkwayMinX = -walkwayWidth / 2;
-  const walkwayMaxX = walkwayWidth / 2;
-  const walkwayLength = state.chassisData ? state.chassisData.length - 0.4 : 12;
-  const walkwayMinZ = -walkwayLength / 2;
-  const walkwayMaxZ = walkwayLength / 2;
+  const walkwayWidth = getEffectiveWalkwayWidth();
+  const walkwayLength = getEffectiveWalkwayLength();
+  const limits = getWalkwayOffsetLimits(walkwayWidth, walkwayLength);
+  const centerX = THREE.MathUtils.clamp(state.walkwayOffsetX || 0, -limits.maxX, limits.maxX);
+  const centerZ = THREE.MathUtils.clamp(state.walkwayOffsetZ || 0, -limits.maxZ, limits.maxZ);
+  const walkwayMinX = centerX - walkwayWidth / 2;
+  const walkwayMaxX = centerX + walkwayWidth / 2;
+  const walkwayMinZ = centerZ - walkwayLength / 2;
+  const walkwayMaxZ = centerZ + walkwayLength / 2;
 
   state.modules.forEach((mod) => {
     const box = new THREE.Box3().setFromObject(mod.mesh);
@@ -1723,6 +1816,8 @@ function serializeState() {
     chassisOpacity: state.chassisOpacity,
     walkwayWidth: state.walkwayWidth,
     walkwayVisible: state.walkwayVisible,
+    walkwayOffsetX: state.walkwayOffsetX,
+    walkwayOffsetZ: state.walkwayOffsetZ,
     modules: state.modules.map((mod) => ({
       id: mod.definitionId,
       type: mod.type,
@@ -1762,6 +1857,8 @@ function restoreState(data) {
 
   state.walkwayWidth = data.walkwayWidth || 0.8;
   state.walkwayVisible = data.walkwayVisible !== undefined ? data.walkwayVisible : true;
+  state.walkwayOffsetX = typeof data.walkwayOffsetX === 'number' ? data.walkwayOffsetX : 0;
+  state.walkwayOffsetZ = typeof data.walkwayOffsetZ === 'number' ? data.walkwayOffsetZ : 0;
   syncWalkwayControls(state.walkwayWidth);
   ui.walkwayToggle.checked = state.walkwayVisible;
   updateWalkway();
