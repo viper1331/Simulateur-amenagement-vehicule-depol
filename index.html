@@ -17,35 +17,24 @@
         <button id="btn-export-png">Exporter PNG</button>
         <button id="btn-analyze">Analyser</button>
         <button id="btn-compare">Comparer (A vs B)</button>
-        <div class="quality-selector" role="group" aria-label="Qualité de rendu">
-          <button type="button" data-quality-mode="draft">Draft</button>
-          <button type="button" data-quality-mode="balanced">Balanced</button>
-          <button type="button" data-quality-mode="high">High</button>
-        </div>
       </div>
       <input type="file" id="file-input" accept="application/json" hidden>
     </header>
     <main class="workspace">
       <aside class="panel left">
-        <section class="collapsible" data-collapsible data-storage-key="panel-chassis">
-          <h2 class="collapsible-header">
-            <button type="button" class="collapsible-toggle" data-collapse-toggle aria-expanded="true" aria-controls="panel-chassis-content">
-              <span class="collapsible-title">Châssis</span>
-              <span class="collapsible-icon" aria-hidden="true"></span>
-            </button>
-          </h2>
-          <div class="collapsible-content" id="panel-chassis-content">
-            <label for="chassis-select">Modèle</label>
-            <select id="chassis-select"></select>
-            <div class="chassis-stats">
-              <div><span>PTAC :</span> <span id="chassis-ptac">-</span></div>
-              <div><span>Empattement :</span> <span id="chassis-wheelbase">-</span></div>
-              <div><span>Masse :</span> <span id="chassis-mass">-</span></div>
-              <div><span>Dimensions :</span> <span id="chassis-dims">-</span></div>
-            </div>
-            <button id="btn-edit-chassis" class="ghost">Modifier le châssis sélectionné</button>
-            <button id="btn-add-chassis" class="secondary" data-collapsed-label="Ajouter un châssis personnalisé" data-expanded-label="Masquer le formulaire">Ajouter un châssis personnalisé</button>
-            <form id="chassis-form" class="inline-form is-collapsed">
+        <section>
+          <h2>Châssis</h2>
+          <label for="chassis-select">Modèle</label>
+          <select id="chassis-select"></select>
+          <div class="chassis-stats">
+            <div><span>PTAC :</span> <span id="chassis-ptac">-</span></div>
+            <div><span>Empattement :</span> <span id="chassis-wheelbase">-</span></div>
+            <div><span>Masse :</span> <span id="chassis-mass">-</span></div>
+            <div><span>Dimensions :</span> <span id="chassis-dims">-</span></div>
+          </div>
+          <button id="btn-edit-chassis" class="ghost">Modifier le châssis sélectionné</button>
+          <button id="btn-add-chassis" class="secondary" data-collapsed-label="Ajouter un châssis personnalisé" data-expanded-label="Masquer le formulaire">Ajouter un châssis personnalisé</button>
+          <form id="chassis-form" class="inline-form is-collapsed">
             <div class="form-row">
               <label for="chassis-name">Nom</label>
               <input id="chassis-name" name="name" type="text" required placeholder="Ex. Châssis 20T">
@@ -289,172 +278,150 @@
               <button type="button" class="ghost" data-close-form>Annuler</button>
             </div>
           </form>
-          </div>
         </section>
-        <section class="collapsible" data-collapsible data-storage-key="panel-modules">
-          <h2 class="collapsible-header">
-            <button type="button" class="collapsible-toggle" data-collapse-toggle aria-expanded="true" aria-controls="panel-modules-content">
-              <span class="collapsible-title">Modules</span>
-              <span class="collapsible-icon" aria-hidden="true"></span>
-            </button>
-          </h2>
-          <div class="collapsible-content" id="panel-modules-content">
-            <p class="module-intro">Sélectionnez un module prêt à l'emploi, importez une bibliothèque d'objets 3D ou créez vos propres équipements pour composer votre aménagement.</p>
-            <div class="module-library-tools">
-              <button id="btn-import-module-library" type="button" class="ghost">Importer une bibliothèque de modules</button>
-              <input type="file" id="module-library-input" accept=".json,.zip,.samlib" hidden>
-              <p class="module-library-help">Les bibliothèques peuvent être fournies au format JSON ou sous forme d'archives ZIP (fichiers SH3F de Sweet Home 3D). Décompressez les archives si nécessaire : le simulateur détecte automatiquement le descriptif JSON et ajoute les modules au catalogue.</p>
-              <div class="module-library-sources">
-                <h3>Sources de modèles 3D gratuits</h3>
-                <ul class="module-library-links">
-                  <li><a href="https://www.sweethome3d.com/fr/importModels.jsp" target="_blank" rel="noreferrer noopener">Modèles 3D libres Sweet Home 3D</a> — plus de 1&nbsp;600 modules créés par la communauté.</li>
-                  <li><a href="https://www.sweethome3d.com/fr/downloads/3DModels-Contributions-1.9.3.zip" target="_blank" rel="noreferrer noopener">Contributions 1.9.3</a> — 511 modèles (Licence Art Libre).</li>
-                  <li><a href="https://www.sweethome3d.com/fr/downloads/3DModels-Scopia-1.9.3.zip" target="_blank" rel="noreferrer noopener">Scopia 1.9.3</a> — 500 modèles (Licence CC-BY).</li>
-                  <li><a href="https://www.sweethome3d.com/fr/downloads/3DModels-BlendSwap-CC-0-1.9.3.zip" target="_blank" rel="noreferrer noopener">Blend Swap CC-0</a> — 175 modèles (Domaine public).</li>
-                  <li><a href="https://www.sweethome3d.com/fr/creerBibliotheque.jsp" target="_blank" rel="noreferrer noopener">Éditeur de bibliothèque Sweet Home 3D</a> — créez vos propres fichiers SH3F.</li>
-                  <li><a href="https://3dwarehouse.sketchup.com/" target="_blank" rel="noreferrer noopener">Trimble 3D Warehouse</a> — vaste catalogue Collada/KMZ (connexion Trimble requise).</li>
-                  <li><a href="https://resources.blogscopia.com/" target="_blank" rel="noreferrer noopener">Resources.blogscopia</a> — modèles libres prêts à l'emploi.</li>
-                  <li><a href="http://www.dodecahedronsoftware.com/dodecagon.html" target="_blank" rel="noreferrer noopener">Dodecagon</a> — bibliothèques variées (domaine public).</li>
-                  <li><a href="https://archive3d.net/" target="_blank" rel="noreferrer noopener">Archive3D</a> — nombreuses ressources OBJ/3DS.</li>
-                </ul>
-                <p class="module-library-note">Respectez les licences (Art Libre, CC-BY, CC-0, domaine public, etc.) mentionnées par les auteurs lors de l'import.</p>
-              </div>
-              <div class="module-library-summary">
-                <h3>Bibliothèques disponibles</h3>
-                <ul id="module-library-list" class="module-library-list"></ul>
-              </div>
+        <section>
+          <h2>Modules</h2>
+          <p class="module-intro">Sélectionnez un module prêt à l'emploi, importez une bibliothèque d'objets 3D ou créez vos propres équipements pour composer votre aménagement.</p>
+          <div class="module-library-tools">
+            <button id="btn-import-module-library" type="button" class="ghost">Importer une bibliothèque de modules</button>
+            <input type="file" id="module-library-input" accept=".json,.zip,.samlib" hidden>
+            <p class="module-library-help">Les bibliothèques peuvent être fournies au format JSON ou sous forme d'archives ZIP (fichiers SH3F de Sweet Home 3D). Décompressez les archives si nécessaire : le simulateur détecte automatiquement le descriptif JSON et ajoute les modules au catalogue.</p>
+            <div class="module-library-sources">
+              <h3>Sources de modèles 3D gratuits</h3>
+              <ul class="module-library-links">
+                <li><a href="https://www.sweethome3d.com/fr/importModels.jsp" target="_blank" rel="noreferrer noopener">Modèles 3D libres Sweet Home 3D</a> — plus de 1&nbsp;600 modules créés par la communauté.</li>
+                <li><a href="https://www.sweethome3d.com/fr/downloads/3DModels-Contributions-1.9.3.zip" target="_blank" rel="noreferrer noopener">Contributions 1.9.3</a> — 511 modèles (Licence Art Libre).</li>
+                <li><a href="https://www.sweethome3d.com/fr/downloads/3DModels-Scopia-1.9.3.zip" target="_blank" rel="noreferrer noopener">Scopia 1.9.3</a> — 500 modèles (Licence CC-BY).</li>
+                <li><a href="https://www.sweethome3d.com/fr/downloads/3DModels-BlendSwap-CC-0-1.9.3.zip" target="_blank" rel="noreferrer noopener">Blend Swap CC-0</a> — 175 modèles (Domaine public).</li>
+                <li><a href="https://www.sweethome3d.com/fr/creerBibliotheque.jsp" target="_blank" rel="noreferrer noopener">Éditeur de bibliothèque Sweet Home 3D</a> — créez vos propres fichiers SH3F.</li>
+                <li><a href="https://3dwarehouse.sketchup.com/" target="_blank" rel="noreferrer noopener">Trimble 3D Warehouse</a> — vaste catalogue Collada/KMZ (connexion Trimble requise).</li>
+                <li><a href="https://resources.blogscopia.com/" target="_blank" rel="noreferrer noopener">Resources.blogscopia</a> — modèles libres prêts à l'emploi.</li>
+                <li><a href="http://www.dodecahedronsoftware.com/dodecagon.html" target="_blank" rel="noreferrer noopener">Dodecagon</a> — bibliothèques variées (domaine public).</li>
+                <li><a href="https://archive3d.net/" target="_blank" rel="noreferrer noopener">Archive3D</a> — nombreuses ressources OBJ/3DS.</li>
+              </ul>
+              <p class="module-library-note">Respectez les licences (Art Libre, CC-BY, CC-0, domaine public, etc.) mentionnées par les auteurs lors de l'import.</p>
             </div>
-            <button id="btn-add-module" class="secondary" data-collapsed-label="Ajouter un module personnalisé" data-expanded-label="Masquer le formulaire">Ajouter un module personnalisé</button>
-            <form id="module-form" class="inline-form is-collapsed">
-              <div class="form-row">
-                <label for="module-name">Nom</label>
-                <input id="module-name" name="name" type="text" required placeholder="Ex. Cuve spéciale">
-              </div>
-              <div class="form-row">
-                <label for="module-type">Type</label>
-                <input id="module-type" name="type" type="text" required value="Custom">
-              </div>
-              <div class="form-row">
-                <label for="module-shape">Forme</label>
-                <select id="module-shape" name="shape">
-                  <option value="box" selected>Parallélépipède</option>
-                  <option value="cylinder">Cylindre</option>
-                </select>
-              </div>
-              <div class="form-row">
-                <label for="module-length">Longueur (mm)</label>
-                <input id="module-length" name="sizeZ" type="number" min="1" step="1" required>
-              </div>
-              <div class="form-row">
-                <label for="module-width">Largeur (mm)</label>
-                <input id="module-width" name="sizeX" type="number" min="1" step="1" required>
-              </div>
-              <div class="form-row">
-                <label for="module-height">Hauteur (mm)</label>
-                <input id="module-height" name="sizeY" type="number" min="1" step="1" required>
-              </div>
-              <div class="form-row">
-                <label for="module-mass">Masse à vide (kg)</label>
-                <input id="module-mass" name="massEmpty" type="number" min="0" step="1" required>
-              </div>
-              <div class="form-row">
-                <label class="checkbox" for="module-has-fluid">
-                  <input id="module-has-fluid" name="containsFluid" type="checkbox">
-                  <span>Ce module contient un fluide (cuve, pompe, etc.)</span>
-                </label>
-              </div>
-              <div class="form-row optional is-disabled" data-fluid-row>
-                <label for="module-volume">Volume de fluide (L)</label>
-                <input id="module-volume" name="fluidVolume" type="number" min="0" step="10" required disabled data-fluid-input>
-              </div>
-              <div class="form-row optional is-disabled" data-fluid-row>
-                <label for="module-fill">Remplissage par défaut (%)</label>
-                <input id="module-fill" name="defaultFill" type="number" min="0" max="100" step="5" value="0" required disabled data-fluid-input>
-              </div>
-              <div class="form-row optional is-disabled" data-fluid-row>
-                <label for="module-density">Densité fluide (kg/m³)</label>
-                <input id="module-density" name="density" type="number" min="1" step="10" value="1000" required disabled data-fluid-input>
-              </div>
-              <div class="form-row">
-                <label for="module-color">Couleur</label>
-                <input id="module-color" name="color" type="color" value="#2c7ef4">
-              </div>
-              <div class="form-actions">
-                <button type="submit">Enregistrer</button>
-                <button type="button" class="ghost" data-close-form>Annuler</button>
-              </div>
-            </form>
-            <div id="module-buttons" class="module-catalog"></div>
-            <ul id="module-list"></ul>
-            <label class="checkbox">
-              <input type="checkbox" id="modules-solid-toggle">
-              <span>Empêcher la superposition des modules</span>
-            </label>
-            <label class="checkbox">
-              <input type="checkbox" id="modules-magnet-toggle">
-              <span>Activer le magnétisme pour faciliter l'alignement</span>
-            </label>
+            <div class="module-library-summary">
+              <h3>Bibliothèques disponibles</h3>
+              <ul id="module-library-list" class="module-library-list"></ul>
+            </div>
           </div>
+          <button id="btn-add-module" class="secondary" data-collapsed-label="Ajouter un module personnalisé" data-expanded-label="Masquer le formulaire">Ajouter un module personnalisé</button>
+          <form id="module-form" class="inline-form is-collapsed">
+            <div class="form-row">
+              <label for="module-name">Nom</label>
+              <input id="module-name" name="name" type="text" required placeholder="Ex. Cuve spéciale">
+            </div>
+            <div class="form-row">
+              <label for="module-type">Type</label>
+              <input id="module-type" name="type" type="text" required value="Custom">
+            </div>
+            <div class="form-row">
+              <label for="module-shape">Forme</label>
+              <select id="module-shape" name="shape">
+                <option value="box" selected>Parallélépipède</option>
+                <option value="cylinder">Cylindre</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label for="module-length">Longueur (mm)</label>
+              <input id="module-length" name="sizeZ" type="number" min="1" step="1" required>
+            </div>
+            <div class="form-row">
+              <label for="module-width">Largeur (mm)</label>
+              <input id="module-width" name="sizeX" type="number" min="1" step="1" required>
+            </div>
+            <div class="form-row">
+              <label for="module-height">Hauteur (mm)</label>
+              <input id="module-height" name="sizeY" type="number" min="1" step="1" required>
+            </div>
+            <div class="form-row">
+              <label for="module-mass">Masse à vide (kg)</label>
+              <input id="module-mass" name="massEmpty" type="number" min="0" step="1" required>
+            </div>
+            <div class="form-row">
+              <label class="checkbox" for="module-has-fluid">
+                <input id="module-has-fluid" name="containsFluid" type="checkbox">
+                <span>Ce module contient un fluide (cuve, pompe, etc.)</span>
+              </label>
+            </div>
+            <div class="form-row optional is-disabled" data-fluid-row>
+              <label for="module-volume">Volume de fluide (L)</label>
+              <input id="module-volume" name="fluidVolume" type="number" min="0" step="10" required disabled data-fluid-input>
+            </div>
+            <div class="form-row optional is-disabled" data-fluid-row>
+              <label for="module-fill">Remplissage par défaut (%)</label>
+              <input id="module-fill" name="defaultFill" type="number" min="0" max="100" step="5" value="0" required disabled data-fluid-input>
+            </div>
+            <div class="form-row optional is-disabled" data-fluid-row>
+              <label for="module-density">Densité fluide (kg/m³)</label>
+              <input id="module-density" name="density" type="number" min="1" step="10" value="1000" required disabled data-fluid-input>
+            </div>
+            <div class="form-row">
+              <label for="module-color">Couleur</label>
+              <input id="module-color" name="color" type="color" value="#2c7ef4">
+            </div>
+            <div class="form-actions">
+              <button type="submit">Enregistrer</button>
+              <button type="button" class="ghost" data-close-form>Annuler</button>
+            </div>
+          </form>
+          <div id="module-buttons" class="module-catalog"></div>
+          <ul id="module-list"></ul>
+          <label class="checkbox">
+            <input type="checkbox" id="modules-solid-toggle">
+            <span>Empêcher la superposition des modules</span>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" id="modules-magnet-toggle">
+            <span>Activer le magnétisme pour faciliter l'alignement</span>
+          </label>
         </section>
-        <section class="collapsible" data-collapsible data-storage-key="panel-walkway" data-collapsed="false">
-          <h2 class="collapsible-header">
-            <button type="button" class="collapsible-toggle" data-collapse-toggle aria-expanded="true" aria-controls="panel-walkway-content">
-              <span class="collapsible-title">Couloir de circulation</span>
-              <span class="collapsible-icon" aria-hidden="true"></span>
-            </button>
-          </h2>
-          <div class="collapsible-content" id="panel-walkway-content">
-            <label for="walkway-width">Largeur (mm)</label>
-            <input type="range" id="walkway-width" min="400" max="1200" step="50">
-            <div class="range-value"><span id="walkway-width-value">-</span></div>
-            <label for="walkway-offset-x">Décalage latéral (mm)</label>
-            <input type="range" id="walkway-offset-x" min="-1000" max="1000" step="10" value="0">
-            <div class="range-value"><span id="walkway-offset-x-value">0 mm</span></div>
-            <label for="walkway-offset-z">Décalage longitudinal (mm)</label>
-            <input type="range" id="walkway-offset-z" min="-1000" max="1000" step="10" value="0">
-            <div class="range-value"><span id="walkway-offset-z-value">0 mm</span></div>
-            <label class="checkbox">
-              <input type="checkbox" id="walkway-toggle" checked>
-              <span>Afficher le couloir</span>
-            </label>
-          </div>
+        <section>
+          <h2>Couloir de circulation</h2>
+          <label for="walkway-width">Largeur (mm)</label>
+          <input type="range" id="walkway-width" min="400" max="1200" step="50">
+          <div class="range-value"><span id="walkway-width-value">-</span></div>
+          <label for="walkway-offset-x">Décalage latéral (mm)</label>
+          <input type="range" id="walkway-offset-x" min="-1000" max="1000" step="10" value="0">
+          <div class="range-value"><span id="walkway-offset-x-value">0 mm</span></div>
+          <label for="walkway-offset-z">Décalage longitudinal (mm)</label>
+          <input type="range" id="walkway-offset-z" min="-1000" max="1000" step="10" value="0">
+          <div class="range-value"><span id="walkway-offset-z-value">0 mm</span></div>
+          <label class="checkbox">
+            <input type="checkbox" id="walkway-toggle" checked>
+            <span>Afficher le couloir</span>
+          </label>
         </section>
-        <section class="collapsible" data-collapsible data-storage-key="panel-display" data-collapsed="false">
-          <h2 class="collapsible-header">
-            <button type="button" class="collapsible-toggle" data-collapse-toggle aria-expanded="true" aria-controls="panel-display-content">
-              <span class="collapsible-title">Affichage 3D</span>
-              <span class="collapsible-icon" aria-hidden="true"></span>
-            </button>
-          </h2>
-          <div class="collapsible-content" id="panel-display-content">
-            <label class="checkbox">
-              <input type="checkbox" id="filter-show-chassis" checked>
-              <span>Afficher le châssis</span>
-            </label>
-            <label class="checkbox">
-              <input type="checkbox" id="filter-show-grid" checked>
-              <span>Afficher la grille</span>
-            </label>
-            <label class="checkbox">
-              <input type="checkbox" id="filter-show-gabarit" checked>
-              <span>Afficher le gabarit latéral</span>
-            </label>
-            <label class="checkbox">
-              <input type="checkbox" id="filter-show-usable" checked>
-              <span>Afficher le volume utile</span>
-            </label>
-            <label class="checkbox">
-              <input type="checkbox" id="filter-show-usable-boundaries" checked>
-              <span>Afficher les zones hors volume utile</span>
-            </label>
-            <label class="checkbox">
-              <input type="checkbox" id="filter-show-labels" checked>
-              <span>Afficher les étiquettes de modules</span>
-            </label>
-            <label for="chassis-transparency">Transparence du châssis</label>
-            <input type="range" id="chassis-transparency" min="0" max="100" step="5" value="0">
-            <div class="range-value"><span id="chassis-transparency-value">0%</span></div>
-          </div>
+        <section>
+          <h2>Affichage 3D</h2>
+          <label class="checkbox">
+            <input type="checkbox" id="filter-show-chassis" checked>
+            <span>Afficher le châssis</span>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" id="filter-show-grid" checked>
+            <span>Afficher la grille</span>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" id="filter-show-gabarit" checked>
+            <span>Afficher le gabarit latéral</span>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" id="filter-show-usable" checked>
+            <span>Afficher le volume utile</span>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" id="filter-show-usable-boundaries" checked>
+            <span>Afficher les zones hors volume utile</span>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" id="filter-show-labels" checked>
+            <span>Afficher les étiquettes de modules</span>
+          </label>
+          <label for="chassis-transparency">Transparence du châssis</label>
+          <input type="range" id="chassis-transparency" min="0" max="100" step="5" value="0">
+          <div class="range-value"><span id="chassis-transparency-value">0%</span></div>
         </section>
       </aside>
       <section class="viewport">
@@ -465,79 +432,41 @@
         <div id="hud"></div>
       </section>
       <aside class="panel right">
-        <section class="collapsible" data-collapsible data-storage-key="panel-selection">
-          <h2 class="collapsible-header">
-            <button type="button" class="collapsible-toggle" data-collapse-toggle aria-expanded="true" aria-controls="panel-selection-content">
-              <span class="collapsible-title">Module sélectionné</span>
-              <span class="collapsible-icon" aria-hidden="true"></span>
-            </button>
-          </h2>
-          <div class="collapsible-content" id="panel-selection-content">
-            <div id="selection-details">
-              <div class="detail"><span>Nom :</span><span id="detail-name">-</span></div>
-              <div class="detail"><span>Masse vide :</span><span id="detail-mass">-</span></div>
-              <div class="detail"><span>Capacité :</span><span id="detail-capacity">-</span></div>
-              <div class="detail"><span>Remplissage :</span>
-                <input type="range" id="detail-fill" min="0" max="100" step="5">
-                <span id="detail-fill-value">0%</span>
-              </div>
-              <div class="detail hidden" data-detail-row="library"><span>Bibliothèque :</span><span id="detail-library">-</span></div>
-              <div class="detail hidden" data-detail-row="library-source"><span>Source :</span><span id="detail-library-source">-</span></div>
-              <div class="detail hidden" data-detail-row="library-license"><span>Licence :</span><span id="detail-library-license">-</span></div>
-              <div class="detail hidden" data-detail-row="library-website"><span>Site :</span><a id="detail-library-link" href="#" target="_blank" rel="noreferrer noopener">-</a></div>
-              <div class="detail"><span>Position X (m) :</span><input type="number" id="detail-pos-x" step="0.001"></div>
-              <div class="detail"><span>Position Y (m) :</span><input type="number" id="detail-pos-y" step="0.001"></div>
-              <div class="detail"><span>Position Z (m) :</span><input type="number" id="detail-pos-z" step="0.001"></div>
-              <div class="detail"><span>Rotation Y :</span><input type="number" id="detail-rot-y" step="5"></div>
-              <div class="detail"><span>Tolérance :</span><span id="detail-tolerance">Δdim = —</span></div>
+        <section>
+          <h2>Module sélectionné</h2>
+          <div id="selection-details">
+            <div class="detail"><span>Nom :</span><span id="detail-name">-</span></div>
+            <div class="detail"><span>Masse vide :</span><span id="detail-mass">-</span></div>
+            <div class="detail"><span>Capacité :</span><span id="detail-capacity">-</span></div>
+            <div class="detail"><span>Remplissage :</span>
+              <input type="range" id="detail-fill" min="0" max="100" step="5">
+              <span id="detail-fill-value">0%</span>
             </div>
-            <div class="door-panel">
-              <h3>Cinématiques d'accès</h3>
-              <div id="door-controls" class="door-controls is-empty">
-                <p class="door-empty">Aucune cinématique disponible pour ce module.</p>
-              </div>
-            </div>
+            <div class="detail hidden" data-detail-row="library"><span>Bibliothèque :</span><span id="detail-library">-</span></div>
+            <div class="detail hidden" data-detail-row="library-source"><span>Source :</span><span id="detail-library-source">-</span></div>
+            <div class="detail hidden" data-detail-row="library-license"><span>Licence :</span><span id="detail-library-license">-</span></div>
+            <div class="detail hidden" data-detail-row="library-website"><span>Site :</span><a id="detail-library-link" href="#" target="_blank" rel="noreferrer noopener">-</a></div>
+            <div class="detail"><span>Position X (m) :</span><input type="number" id="detail-pos-x" step="0.001"></div>
+            <div class="detail"><span>Position Y (m) :</span><input type="number" id="detail-pos-y" step="0.001"></div>
+            <div class="detail"><span>Position Z (m) :</span><input type="number" id="detail-pos-z" step="0.001"></div>
+            <div class="detail"><span>Rotation Y :</span><input type="number" id="detail-rot-y" step="5"></div>
           </div>
         </section>
-        <section class="collapsible" data-collapsible data-storage-key="panel-analysis">
-          <h2 class="collapsible-header">
-            <button type="button" class="collapsible-toggle" data-collapse-toggle aria-expanded="true" aria-controls="panel-analysis-content">
-              <span class="collapsible-title">Analyse rapide</span>
-              <span class="collapsible-icon" aria-hidden="true"></span>
-            </button>
-          </h2>
-          <div class="collapsible-content" id="panel-analysis-content">
-            <div class="analysis">
-              <div><span>Masse totale :</span><span id="analysis-mass">-</span></div>
-              <div><span>Centre de gravité :</span><span id="analysis-cog">-</span></div>
-              <div><span>Charge essieu AV :</span><span id="analysis-front">-</span></div>
-              <div><span>Charge essieu AR :</span><span id="analysis-rear">-</span></div>
-              <div><span>Marge PTAC :</span><span id="analysis-margin">-</span></div>
-              <div class="axle-loads">
-                <div class="axle">
-                  <span>Répartition AV :</span>
-                  <div class="axle-bar" id="axle-front-bar"><span id="axle-front-label">-</span></div>
-                </div>
-                <div class="axle">
-                  <span>Répartition AR :</span>
-                  <div class="axle-bar" id="axle-rear-bar"><span id="axle-rear-label">-</span></div>
-                </div>
-              </div>
-            </div>
+        <section>
+          <h2>Analyse rapide</h2>
+          <div class="analysis">
+            <div><span>Masse totale :</span><span id="analysis-mass">-</span></div>
+            <div><span>Centre de gravité :</span><span id="analysis-cog">-</span></div>
+            <div><span>Charge essieu AV :</span><span id="analysis-front">-</span></div>
+            <div><span>Charge essieu AR :</span><span id="analysis-rear">-</span></div>
+            <div><span>Marge PTAC :</span><span id="analysis-margin">-</span></div>
           </div>
         </section>
-        <section class="collapsible" data-collapsible data-storage-key="panel-history" data-collapsed="false">
-          <h2 class="collapsible-header">
-            <button type="button" class="collapsible-toggle" data-collapse-toggle aria-expanded="true" aria-controls="panel-history-content">
-              <span class="collapsible-title">Historique</span>
-              <span class="collapsible-icon" aria-hidden="true"></span>
-            </button>
-          </h2>
-          <div class="collapsible-content" id="panel-history-content">
-            <div class="history-controls">
-              <button id="btn-undo" title="Ctrl+Z">Annuler</button>
-              <button id="btn-redo" title="Ctrl+Y">Rétablir</button>
-            </div>
+        <section>
+          <h2>Historique</h2>
+          <div class="history-controls">
+            <button id="btn-undo" title="Ctrl+Z">Annuler</button>
+            <button id="btn-redo" title="Ctrl+Y">Rétablir</button>
           </div>
         </section>
       </aside>
