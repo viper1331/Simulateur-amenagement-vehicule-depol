@@ -1,4 +1,5 @@
 import * as THREE from './libs/three.module.js';
+import { unzipSync, strFromU8 } from './libs/fflate.module.js';
 
 const mmToM = (value) => (Number.isFinite(value) ? value / 1000 : null);
 const mToMm = (value) => (Number.isFinite(value) ? value * 1000 : null);
@@ -106,6 +107,26 @@ const chassisCatalog = [
   }
 ];
 
+const BUILTIN_MODULE_LIBRARY = {
+  id: 'library-standard',
+  name: 'Bibliothèque standard',
+  description: 'Modules fournis avec le simulateur.',
+  source: 'Simulateur 3D de dépollution',
+  license: 'Usage interne',
+  website: null,
+  isSystem: true
+};
+
+const CUSTOM_MODULE_LIBRARY = {
+  id: 'library-custom',
+  name: 'Modules personnalisés',
+  description: 'Modules créés ou importés par l\'utilisateur.',
+  source: 'Utilisateur',
+  license: 'Selon vos propres ressources',
+  website: null,
+  isSystem: true
+};
+
 const moduleCatalog = [
   {
     id: 'tank-medium',
@@ -118,7 +139,13 @@ const moduleCatalog = [
     fluidVolume: 5000,
     defaultFill: 60,
     density: 1000,
-    containsFluid: true
+    containsFluid: true,
+    libraryId: BUILTIN_MODULE_LIBRARY.id,
+    libraryName: BUILTIN_MODULE_LIBRARY.name,
+    librarySource: BUILTIN_MODULE_LIBRARY.source,
+    libraryLicense: BUILTIN_MODULE_LIBRARY.license,
+    libraryWebsite: BUILTIN_MODULE_LIBRARY.website,
+    isCustom: false
   },
   {
     id: 'tank-compact',
@@ -131,7 +158,13 @@ const moduleCatalog = [
     fluidVolume: 3000,
     defaultFill: 50,
     density: 1000,
-    containsFluid: true
+    containsFluid: true,
+    libraryId: BUILTIN_MODULE_LIBRARY.id,
+    libraryName: BUILTIN_MODULE_LIBRARY.name,
+    librarySource: BUILTIN_MODULE_LIBRARY.source,
+    libraryLicense: BUILTIN_MODULE_LIBRARY.license,
+    libraryWebsite: BUILTIN_MODULE_LIBRARY.website,
+    isCustom: false
   },
   {
     id: 'pump-high',
@@ -144,7 +177,13 @@ const moduleCatalog = [
     fluidVolume: 40,
     defaultFill: 0,
     density: 900,
-    containsFluid: true
+    containsFluid: true,
+    libraryId: BUILTIN_MODULE_LIBRARY.id,
+    libraryName: BUILTIN_MODULE_LIBRARY.name,
+    librarySource: BUILTIN_MODULE_LIBRARY.source,
+    libraryLicense: BUILTIN_MODULE_LIBRARY.license,
+    libraryWebsite: BUILTIN_MODULE_LIBRARY.website,
+    isCustom: false
   },
   {
     id: 'hosereel-duo',
@@ -157,7 +196,13 @@ const moduleCatalog = [
     fluidVolume: 120,
     defaultFill: 20,
     density: 950,
-    containsFluid: true
+    containsFluid: true,
+    libraryId: BUILTIN_MODULE_LIBRARY.id,
+    libraryName: BUILTIN_MODULE_LIBRARY.name,
+    librarySource: BUILTIN_MODULE_LIBRARY.source,
+    libraryLicense: BUILTIN_MODULE_LIBRARY.license,
+    libraryWebsite: BUILTIN_MODULE_LIBRARY.website,
+    isCustom: false
   },
   {
     id: 'cabinet-large',
@@ -170,7 +215,13 @@ const moduleCatalog = [
     fluidVolume: 0,
     defaultFill: 0,
     density: 1,
-    containsFluid: false
+    containsFluid: false,
+    libraryId: BUILTIN_MODULE_LIBRARY.id,
+    libraryName: BUILTIN_MODULE_LIBRARY.name,
+    librarySource: BUILTIN_MODULE_LIBRARY.source,
+    libraryLicense: BUILTIN_MODULE_LIBRARY.license,
+    libraryWebsite: BUILTIN_MODULE_LIBRARY.website,
+    isCustom: false
   },
   {
     id: 'cabinet-ops',
@@ -183,12 +234,129 @@ const moduleCatalog = [
     fluidVolume: 0,
     defaultFill: 0,
     density: 1,
-    containsFluid: false
+    containsFluid: false,
+    libraryId: BUILTIN_MODULE_LIBRARY.id,
+    libraryName: BUILTIN_MODULE_LIBRARY.name,
+    librarySource: BUILTIN_MODULE_LIBRARY.source,
+    libraryLicense: BUILTIN_MODULE_LIBRARY.license,
+    libraryWebsite: BUILTIN_MODULE_LIBRARY.website,
+    isCustom: false
   }
 ];
 
+const moduleLibraries = new Map([
+  [BUILTIN_MODULE_LIBRARY.id, { ...BUILTIN_MODULE_LIBRARY }],
+  [CUSTOM_MODULE_LIBRARY.id, { ...CUSTOM_MODULE_LIBRARY }]
+]);
+
 const MODULE_SHAPES = ['box', 'cylinder'];
 const DEFAULT_MAGNET_DISTANCE = 0.15;
+
+function slugify(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  return value
+    .toString()
+    .normalize('NFD')
+    .replace(/[^\p{Letter}\p{Number}]+/gu, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+}
+
+function ensureUniqueModuleId(baseId) {
+  let candidate = (baseId && baseId.toString().trim()) || '';
+  if (!candidate) {
+    candidate = `module-${Date.now()}`;
+  }
+  let uniqueId = candidate;
+  let suffix = 1;
+  while (moduleCatalog.some((item) => item.id === uniqueId)) {
+    uniqueId = `${candidate}-${suffix++}`;
+  }
+  return uniqueId;
+}
+
+function sanitizeModuleLibrary(rawLibrary, fileName = '') {
+  if (!rawLibrary || typeof rawLibrary !== 'object') {
+    throw new Error('Le fichier sélectionné ne contient pas de bibliothèque valide.');
+  }
+  const modules = Array.isArray(rawLibrary.modules)
+    ? rawLibrary.modules
+    : Array.isArray(rawLibrary.items)
+      ? rawLibrary.items
+      : null;
+  if (!modules || modules.length === 0) {
+    throw new Error('La bibliothèque ne contient aucun module exploitable.');
+  }
+  const nameSource = rawLibrary.name || rawLibrary.title || fileName.replace(/\.[^.]+$/, '');
+  const name = (nameSource || 'Bibliothèque de modules').toString().trim() || 'Bibliothèque de modules';
+  const rawId = rawLibrary.id || slugify(name);
+  const baseId = slugify(rawId) || slugify(name) || `library-${Date.now()}`;
+  let libraryId = baseId;
+  let suffix = 1;
+  while (moduleLibraries.has(libraryId) && rawLibrary.id === undefined) {
+    libraryId = `${baseId}-${suffix++}`;
+  }
+  const description = rawLibrary.description || rawLibrary.summary || null;
+  const source = rawLibrary.source || rawLibrary.origin || null;
+  const website = rawLibrary.website || rawLibrary.url || rawLibrary.homepage || null;
+  const license = rawLibrary.license || rawLibrary.licence || rawLibrary.rights || null;
+
+  return {
+    id: libraryId,
+    name,
+    description: description ? description.toString().trim() : null,
+    source: source ? source.toString().trim() : null,
+    website: website ? website.toString().trim() : null,
+    license: license ? license.toString().trim() : null,
+    modules,
+    isSystem: false
+  };
+}
+
+function registerModuleLibraryMeta(meta) {
+  if (!meta || !meta.id) {
+    return;
+  }
+  const current = moduleLibraries.get(meta.id) || {};
+  moduleLibraries.set(meta.id, {
+    id: meta.id,
+    name: meta.name || current.name || meta.id,
+    description: meta.description ?? current.description ?? null,
+    source: meta.source ?? current.source ?? null,
+    license: meta.license ?? current.license ?? null,
+    website: meta.website ?? current.website ?? null,
+    isSystem: current.isSystem ?? meta.isSystem ?? false
+  });
+}
+
+function normalizeWebsiteUrl(url) {
+  if (!url) {
+    return '';
+  }
+  const trimmed = url.toString().trim();
+  if (!trimmed) {
+    return '';
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+}
+
+function formatWebsiteLabel(url) {
+  if (!url) {
+    return '';
+  }
+  try {
+    const normalized = normalizeWebsiteUrl(url);
+    const parsed = new URL(normalized);
+    return parsed.hostname.replace(/^www\./i, '');
+  } catch (error) {
+    return url.toString().replace(/^https?:\/\//i, '');
+  }
+}
 
 function normalizeModuleShape(value) {
   if (!value && value !== 0) {
@@ -485,7 +653,7 @@ function computeChassisSpatialMetrics(chassis) {
   };
 }
 
-function sanitizeModuleDefinition(definition) {
+function sanitizeModuleDefinition(definition, libraryMeta = null) {
   const shape = normalizeModuleShape(definition.shape);
   const sizeSource = definition.size || definition;
   let sizeX = Number(sizeSource.x ?? sizeSource.sizeX ?? sizeSource.width ?? 0.2) || 0.2;
@@ -503,8 +671,60 @@ function sanitizeModuleDefinition(definition) {
   const defaultFillRaw = Number(definition.defaultFill ?? definition.fill ?? 0) || 0;
   const densityCandidate = Number(definition.density ?? 1000);
   const densityRaw = Number.isFinite(densityCandidate) ? densityCandidate : 1000;
+  const libraryId = definition.libraryId || libraryMeta?.id || null;
+  const libraryName = definition.libraryName || libraryMeta?.name || null;
+  const librarySource = definition.librarySource || libraryMeta?.source || null;
+  const libraryLicense = definition.libraryLicense || libraryMeta?.license || null;
+  const libraryWebsite = definition.libraryWebsite || libraryMeta?.website || null;
+  let id = definition.id ? definition.id.toString() : '';
+  if (!id) {
+    const slugBaseRaw = slugify(definition.name || libraryName || 'module');
+    const slugBase = slugBaseRaw || `module-${Date.now()}`;
+    const prefixedBase = libraryId && libraryId !== CUSTOM_MODULE_LIBRARY.id
+      ? `${libraryId}-${slugBase}`
+      : slugBase;
+    const existingByName = libraryId
+      ? moduleCatalog.find((item) => item.libraryId === libraryId && slugify(item.name) === slugBaseRaw)
+      : null;
+    id = existingByName ? existingByName.id : ensureUniqueModuleId(prefixedBase);
+  }
+  const resolvedLibraryId = libraryId
+    || (definition.isCustom === false ? BUILTIN_MODULE_LIBRARY.id : CUSTOM_MODULE_LIBRARY.id);
+  let resolvedLibraryMeta = moduleLibraries.get(resolvedLibraryId) || null;
+  if (!resolvedLibraryMeta && libraryMeta) {
+    moduleLibraries.set(resolvedLibraryId, { ...libraryMeta, id: resolvedLibraryId });
+    resolvedLibraryMeta = moduleLibraries.get(resolvedLibraryId);
+  }
+  if (!resolvedLibraryMeta) {
+    if (resolvedLibraryId === BUILTIN_MODULE_LIBRARY.id) {
+      resolvedLibraryMeta = BUILTIN_MODULE_LIBRARY;
+    } else if (resolvedLibraryId === CUSTOM_MODULE_LIBRARY.id) {
+      resolvedLibraryMeta = CUSTOM_MODULE_LIBRARY;
+    } else {
+      resolvedLibraryMeta = {
+        id: resolvedLibraryId,
+        name: libraryName || resolvedLibraryId,
+        description: libraryMeta?.description || null,
+        source: librarySource || null,
+        license: libraryLicense || null,
+        website: libraryWebsite || null,
+        isSystem: false
+      };
+      moduleLibraries.set(resolvedLibraryId, resolvedLibraryMeta);
+    }
+  } else if (libraryMeta) {
+    moduleLibraries.set(resolvedLibraryId, {
+      ...resolvedLibraryMeta,
+      name: resolvedLibraryMeta.name || libraryMeta.name,
+      description: resolvedLibraryMeta.description || libraryMeta.description || null,
+      source: resolvedLibraryMeta.source || libraryMeta.source || null,
+      license: resolvedLibraryMeta.license || libraryMeta.license || null,
+      website: resolvedLibraryMeta.website || libraryMeta.website || null
+    });
+    resolvedLibraryMeta = moduleLibraries.get(resolvedLibraryId);
+  }
   const sanitized = {
-    id: definition.id || `custom-module-${Date.now()}`,
+    id,
     type: definition.type || 'Custom',
     name: definition.name || 'Module personnalisé',
     size: { x: sizeX, y: sizeY, z: sizeZ },
@@ -515,7 +735,14 @@ function sanitizeModuleDefinition(definition) {
     defaultFill: containsFluid ? Math.min(100, Math.max(0, defaultFillRaw)) : 0,
     density: containsFluid ? Math.max(1, densityRaw) : Math.max(0, densityRaw),
     containsFluid,
-    isCustom: definition.isCustom !== undefined ? definition.isCustom : true
+    libraryId: resolvedLibraryId,
+    libraryName: libraryName || resolvedLibraryMeta?.name || null,
+    librarySource: librarySource || resolvedLibraryMeta?.source || null,
+    libraryLicense: libraryLicense || resolvedLibraryMeta?.license || null,
+    libraryWebsite: libraryWebsite || resolvedLibraryMeta?.website || null,
+    isCustom: definition.isCustom !== undefined
+      ? definition.isCustom
+      : resolvedLibraryId === CUSTOM_MODULE_LIBRARY.id
   };
   return sanitized;
 }
@@ -532,8 +759,8 @@ function addChassisDefinition(definition) {
   return sanitized;
 }
 
-function addModuleDefinition(definition) {
-  const sanitized = sanitizeModuleDefinition(definition);
+function addModuleDefinition(definition, libraryMeta = null) {
+  const sanitized = sanitizeModuleDefinition(definition, libraryMeta);
   const index = moduleCatalog.findIndex((item) => item.id === sanitized.id);
   if (index !== -1) {
     moduleCatalog[index] = sanitized;
@@ -541,7 +768,101 @@ function addModuleDefinition(definition) {
     moduleCatalog.push(sanitized);
   }
   populateModuleButtons();
+  updateModuleLibrarySummary();
   return moduleCatalog[index !== -1 ? index : moduleCatalog.length - 1];
+}
+
+async function readModuleLibraryFile(file) {
+  if (!file) {
+    throw new Error('Aucun fichier sélectionné.');
+  }
+  const fileName = file.name || 'bibliotheque';
+  const lowerName = fileName.toLowerCase();
+  if (lowerName.endsWith('.zip')) {
+    const buffer = new Uint8Array(await file.arrayBuffer());
+    const entries = unzipSync(buffer);
+    const entryName = Object.keys(entries).find((name) => name.toLowerCase().endsWith('.json'));
+    if (!entryName) {
+      throw new Error('Le fichier ZIP ne contient pas de description JSON de bibliothèque.');
+    }
+    const jsonText = strFromU8(entries[entryName]);
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonText);
+    } catch (error) {
+      throw new Error('Impossible de lire le fichier JSON contenu dans l\'archive.');
+    }
+    return sanitizeModuleLibrary(parsed, fileName);
+  }
+  let text;
+  try {
+    text = await file.text();
+  } catch (error) {
+    throw new Error('Lecture du fichier impossible.');
+  }
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (error) {
+    throw new Error('Le fichier sélectionné n\'est pas un JSON valide.');
+  }
+  return sanitizeModuleLibrary(data, fileName);
+}
+
+async function importModuleLibraryFile(file) {
+  const library = await readModuleLibraryFile(file);
+  const meta = {
+    id: library.id,
+    name: library.name,
+    description: library.description,
+    source: library.source,
+    license: library.license,
+    website: library.website,
+    isSystem: library.isSystem
+  };
+  registerModuleLibraryMeta(meta);
+  const modules = Array.isArray(library.modules) ? library.modules : [];
+  let imported = 0;
+  modules.forEach((moduleDefinition) => {
+    if (!moduleDefinition) return;
+    const prepared = {
+      ...moduleDefinition,
+      libraryId: meta.id,
+      libraryName: moduleDefinition.libraryName || meta.name,
+      librarySource: moduleDefinition.librarySource || meta.source,
+      libraryLicense: moduleDefinition.libraryLicense || meta.license,
+      libraryWebsite: moduleDefinition.libraryWebsite || meta.website,
+      isCustom: false
+    };
+    const added = addModuleDefinition(prepared, meta);
+    if (added) {
+      imported += 1;
+    }
+  });
+  updateModuleLibrarySummary();
+  return { meta, count: imported };
+}
+
+async function handleModuleLibraryInput(event) {
+  const input = event.target;
+  const file = input.files && input.files[0];
+  if (!file) {
+    return;
+  }
+  try {
+    const result = await importModuleLibraryFile(file);
+    const count = result.count;
+    const libraryName = result.meta.name || result.meta.id;
+    const message = count > 0
+      ? `La bibliothèque « ${libraryName} » a été importée (${count} module${count > 1 ? 's' : ''}).`
+      : `La bibliothèque « ${libraryName} » a été importée, mais aucun module supplémentaire n'a été détecté.`;
+    showModal('Import réussi', message);
+  } catch (error) {
+    console.error(error);
+    showModal('Import impossible', error.message || 'Une erreur est survenue lors de l\'import.');
+  } finally {
+    input.value = '';
+  }
 }
 
 function setFormCollapsed(button, form, collapsed) {
@@ -737,6 +1058,12 @@ function applyModuleDefinitionUpdate(definition) {
     mod.size = { ...definition.size };
     mod.fill = mod.containsFluid ? Math.min(100, Math.max(0, mod.fill ?? definition.defaultFill ?? 0)) : 0;
     mod.shape = normalizeModuleShape(definition.shape);
+    mod.libraryId = definition.libraryId;
+    mod.libraryName = definition.libraryName;
+    mod.librarySource = definition.librarySource;
+    mod.libraryLicense = definition.libraryLicense;
+    mod.libraryWebsite = definition.libraryWebsite;
+    mod.isCustom = Boolean(definition.isCustom);
     const color = definition.color !== undefined ? definition.color : 0x777777;
     mod.color = color;
     if (mod.mesh && mod.mesh.material) {
@@ -1704,6 +2031,9 @@ function initUI() {
   ui.chassisDims = document.getElementById('chassis-dims');
   ui.moduleButtons = document.getElementById('module-buttons');
   ui.moduleList = document.getElementById('module-list');
+  ui.btnImportModuleLibrary = document.getElementById('btn-import-module-library');
+  ui.moduleLibraryInput = document.getElementById('module-library-input');
+  ui.moduleLibraryList = document.getElementById('module-library-list');
   ui.walkwayRange = document.getElementById('walkway-width');
   ui.walkwayValue = document.getElementById('walkway-width-value');
   ui.walkwayOffsetXRange = document.getElementById('walkway-offset-x');
@@ -1719,6 +2049,14 @@ function initUI() {
   ui.detailCapacity = document.getElementById('detail-capacity');
   ui.detailFill = document.getElementById('detail-fill');
   ui.detailFillValue = document.getElementById('detail-fill-value');
+  ui.detailLibrary = document.getElementById('detail-library');
+  ui.detailLibraryRow = document.querySelector('[data-detail-row="library"]');
+  ui.detailLibrarySource = document.getElementById('detail-library-source');
+  ui.detailLibrarySourceRow = document.querySelector('[data-detail-row="library-source"]');
+  ui.detailLibraryLicense = document.getElementById('detail-library-license');
+  ui.detailLibraryLicenseRow = document.querySelector('[data-detail-row="library-license"]');
+  ui.detailLibraryLink = document.getElementById('detail-library-link');
+  ui.detailLibraryWebsiteRow = document.querySelector('[data-detail-row="library-website"]');
   ui.detailPosX = document.getElementById('detail-pos-x');
   ui.detailPosY = document.getElementById('detail-pos-y');
   ui.detailPosZ = document.getElementById('detail-pos-z');
@@ -1774,6 +2112,7 @@ function initUI() {
     applyChassis(initialChassis);
   }
   populateModuleButtons();
+  updateModuleLibrarySummary();
   syncWalkwayControls(state.walkwayWidth);
   syncWalkwayPositionControls(state.walkwayWidth, getEffectiveWalkwayLength());
   syncChassisTransparencyControls();
@@ -1904,6 +2243,10 @@ function populateModuleButtons() {
         }
       }
 
+      if (module.libraryName && module.libraryId !== BUILTIN_MODULE_LIBRARY.id) {
+        meta.appendChild(createMetaLine('Bibliothèque', module.libraryName));
+      }
+
       card.appendChild(meta);
 
       const actions = document.createElement('div');
@@ -1934,6 +2277,120 @@ function populateModuleButtons() {
 
     groupWrapper.appendChild(grid);
     ui.moduleButtons.appendChild(groupWrapper);
+  });
+}
+
+function updateModuleLibrarySummary() {
+  if (!ui.moduleLibraryList) return;
+  const groups = new Map();
+  moduleCatalog.forEach((module) => {
+    const libraryId = module.libraryId || CUSTOM_MODULE_LIBRARY.id;
+    if (!groups.has(libraryId)) {
+      const fallbackMeta = {
+        id: libraryId,
+        name: module.libraryName || libraryId,
+        description: null,
+        source: module.librarySource || null,
+        license: module.libraryLicense || null,
+        website: module.libraryWebsite || null,
+        isSystem: libraryId === BUILTIN_MODULE_LIBRARY.id || libraryId === CUSTOM_MODULE_LIBRARY.id
+      };
+      registerModuleLibraryMeta(fallbackMeta);
+      groups.set(libraryId, { meta: moduleLibraries.get(libraryId), modules: [] });
+    }
+    groups.get(libraryId).modules.push(module);
+  });
+
+  ui.moduleLibraryList.innerHTML = '';
+
+  if (groups.size === 0) {
+    const empty = document.createElement('li');
+    empty.className = 'module-library-empty';
+    empty.textContent = 'Aucune bibliothèque importée pour le moment.';
+    ui.moduleLibraryList.appendChild(empty);
+    return;
+  }
+
+  const entries = [...groups.values()].sort((a, b) => {
+    const nameA = a.meta?.name || a.meta?.id || '';
+    const nameB = b.meta?.name || b.meta?.id || '';
+    return nameA.localeCompare(nameB, 'fr', { sensitivity: 'base' });
+  });
+
+  entries.forEach((entry) => {
+    const { meta, modules } = entry;
+    const li = document.createElement('li');
+    li.className = 'module-library-item';
+
+    const header = document.createElement('div');
+    header.className = 'module-library-header';
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'module-library-name';
+    nameEl.textContent = meta?.name || meta?.id || 'Bibliothèque';
+
+    const countEl = document.createElement('span');
+    countEl.className = 'module-library-count';
+    const count = modules.length;
+    countEl.textContent = `${count} module${count > 1 ? 's' : ''}`;
+
+    header.appendChild(nameEl);
+    header.appendChild(countEl);
+    li.appendChild(header);
+
+    if (meta?.description) {
+      const descriptionEl = document.createElement('p');
+      descriptionEl.className = 'module-library-description';
+      descriptionEl.textContent = meta.description;
+      li.appendChild(descriptionEl);
+    }
+
+    const metaList = document.createElement('ul');
+    metaList.className = 'module-library-meta';
+
+    if (meta?.source) {
+      const sourceItem = document.createElement('li');
+      const labelSpan = document.createElement('span');
+      labelSpan.textContent = 'Source';
+      const valueSpan = document.createElement('span');
+      valueSpan.textContent = meta.source;
+      sourceItem.appendChild(labelSpan);
+      sourceItem.appendChild(valueSpan);
+      metaList.appendChild(sourceItem);
+    }
+
+    if (meta?.license) {
+      const licenseItem = document.createElement('li');
+      const labelSpan = document.createElement('span');
+      labelSpan.textContent = 'Licence';
+      const valueSpan = document.createElement('span');
+      valueSpan.textContent = meta.license;
+      licenseItem.appendChild(labelSpan);
+      licenseItem.appendChild(valueSpan);
+      metaList.appendChild(licenseItem);
+    }
+
+    if (meta?.website) {
+      const websiteItem = document.createElement('li');
+      const labelSpan = document.createElement('span');
+      labelSpan.textContent = 'Site';
+      const linkWrapper = document.createElement('span');
+      const anchor = document.createElement('a');
+      anchor.href = normalizeWebsiteUrl(meta.website);
+      anchor.target = '_blank';
+      anchor.rel = 'noreferrer noopener';
+      anchor.textContent = formatWebsiteLabel(meta.website) || meta.website;
+      linkWrapper.appendChild(anchor);
+      websiteItem.appendChild(labelSpan);
+      websiteItem.appendChild(linkWrapper);
+      metaList.appendChild(websiteItem);
+    }
+
+    if (metaList.children.length > 0) {
+      li.appendChild(metaList);
+    }
+
+    ui.moduleLibraryList.appendChild(li);
   });
 }
 
@@ -1972,6 +2429,13 @@ function bindUIEvents() {
       }
       startChassisEdit(chassis);
     });
+  }
+
+  if (ui.btnImportModuleLibrary && ui.moduleLibraryInput) {
+    ui.btnImportModuleLibrary.addEventListener('click', () => {
+      ui.moduleLibraryInput.click();
+    });
+    ui.moduleLibraryInput.addEventListener('change', handleModuleLibraryInput);
   }
 
   if (ui.btnAddModule && ui.moduleForm) {
@@ -2314,9 +2778,10 @@ function handleCustomModuleSubmit(event) {
         throw new Error("Le module sélectionné n'existe plus.");
       }
     }
-    const id = isEdit && existing ? existing.id : `custom-module-${Date.now()}`;
-    const definition = addModuleDefinition({
-      id,
+    const libraryContext = isEdit && existing
+      ? moduleLibraries.get(existing.libraryId) || null
+      : CUSTOM_MODULE_LIBRARY;
+    const payload = {
       type,
       shape,
       name,
@@ -2327,8 +2792,19 @@ function handleCustomModuleSubmit(event) {
       density,
       containsFluid,
       color,
-      isCustom: isEdit && existing ? (existing.isCustom !== undefined ? existing.isCustom : false) : true
-    });
+      libraryId: isEdit && existing ? existing.libraryId : CUSTOM_MODULE_LIBRARY.id,
+      libraryName: isEdit && existing ? existing.libraryName : CUSTOM_MODULE_LIBRARY.name,
+      librarySource: isEdit && existing ? existing.librarySource : CUSTOM_MODULE_LIBRARY.source,
+      libraryLicense: isEdit && existing ? existing.libraryLicense : CUSTOM_MODULE_LIBRARY.license,
+      libraryWebsite: isEdit && existing ? existing.libraryWebsite : CUSTOM_MODULE_LIBRARY.website,
+      isCustom: isEdit && existing
+        ? (existing.isCustom !== undefined ? existing.isCustom : existing.libraryId === CUSTOM_MODULE_LIBRARY.id)
+        : true
+    };
+    if (isEdit && existing) {
+      payload.id = existing.id;
+    }
+    const definition = addModuleDefinition(payload, libraryContext);
     if (isEdit) {
       applyModuleDefinitionUpdate(definition);
       resetModuleFormState();
@@ -2488,6 +2964,12 @@ function addModuleInstance(moduleId) {
     containsFluid,
     size: { ...definition.size },
     color,
+    isCustom: Boolean(definition.isCustom),
+    libraryId: definition.libraryId,
+    libraryName: definition.libraryName,
+    librarySource: definition.librarySource,
+    libraryLicense: definition.libraryLicense,
+    libraryWebsite: definition.libraryWebsite,
     labelSprite: null
   };
 
@@ -2514,6 +2996,17 @@ function selectModule(instance) {
   updateSelectionDetails();
 }
 
+function setDetailRowText(row, element, value) {
+  if (!row || !element) return;
+  if (value && value.toString().trim()) {
+    element.textContent = value;
+    row.classList.remove('hidden');
+  } else {
+    element.textContent = '-';
+    row.classList.add('hidden');
+  }
+}
+
 function updateSelectionDetails() {
   const mod = state.selected;
   if (!mod) {
@@ -2527,6 +3020,10 @@ function updateSelectionDetails() {
     ui.detailPosY.value = '';
     ui.detailPosZ.value = '';
     ui.detailRotY.value = '';
+    if (ui.detailLibraryRow) ui.detailLibraryRow.classList.add('hidden');
+    if (ui.detailLibrarySourceRow) ui.detailLibrarySourceRow.classList.add('hidden');
+    if (ui.detailLibraryLicenseRow) ui.detailLibraryLicenseRow.classList.add('hidden');
+    if (ui.detailLibraryWebsiteRow) ui.detailLibraryWebsiteRow.classList.add('hidden');
     return;
   }
   ui.detailName.textContent = mod.name;
@@ -2546,6 +3043,28 @@ function updateSelectionDetails() {
   ui.detailPosY.value = mod.mesh.position.y.toFixed(3);
   ui.detailPosZ.value = mod.mesh.position.z.toFixed(3);
   ui.detailRotY.value = Math.round(radToDeg(mod.mesh.rotation.y));
+
+  if (ui.detailLibrary && ui.detailLibraryRow) {
+    setDetailRowText(ui.detailLibraryRow, ui.detailLibrary, mod.libraryName || mod.libraryId || '');
+  }
+  if (ui.detailLibrarySource && ui.detailLibrarySourceRow) {
+    setDetailRowText(ui.detailLibrarySourceRow, ui.detailLibrarySource, mod.librarySource || '');
+  }
+  if (ui.detailLibraryLicense && ui.detailLibraryLicenseRow) {
+    setDetailRowText(ui.detailLibraryLicenseRow, ui.detailLibraryLicense, mod.libraryLicense || '');
+  }
+  if (ui.detailLibraryLink && ui.detailLibraryWebsiteRow) {
+    if (mod.libraryWebsite) {
+      const href = normalizeWebsiteUrl(mod.libraryWebsite);
+      ui.detailLibraryLink.href = href || '#';
+      ui.detailLibraryLink.textContent = formatWebsiteLabel(mod.libraryWebsite) || href || mod.libraryWebsite;
+      ui.detailLibraryWebsiteRow.classList.remove('hidden');
+    } else {
+      ui.detailLibraryLink.removeAttribute('href');
+      ui.detailLibraryLink.textContent = '-';
+      ui.detailLibraryWebsiteRow.classList.add('hidden');
+    }
+  }
 }
 
 function updateModuleList() {
@@ -3206,6 +3725,12 @@ function serializeState() {
       containsFluid: mod.containsFluid,
       size: { ...mod.size },
       color: mod.color,
+      libraryId: mod.libraryId,
+      libraryName: mod.libraryName,
+      librarySource: mod.librarySource,
+      libraryLicense: mod.libraryLicense,
+      libraryWebsite: mod.libraryWebsite,
+      isCustom: mod.isCustom,
       position: mod.mesh.position.toArray(),
       rotationY: mod.mesh.rotation.y
     }))
@@ -3268,8 +3793,26 @@ function restoreState(data) {
 
   (data.modules || []).forEach((item) => {
     if (!item) return;
+    if (item.libraryId) {
+      registerModuleLibraryMeta({
+        id: item.libraryId,
+        name: item.libraryName,
+        source: item.librarySource,
+        license: item.libraryLicense,
+        website: item.libraryWebsite
+      });
+    }
     let definition = moduleCatalog.find((m) => m.id === item.id) || null;
     if (!definition) {
+      const libraryMeta = item.libraryId
+        ? {
+            id: item.libraryId,
+            name: item.libraryName,
+            source: item.librarySource,
+            license: item.libraryLicense,
+            website: item.libraryWebsite
+          }
+        : CUSTOM_MODULE_LIBRARY;
       definition = addModuleDefinition({
         id: item.id,
         type: item.type || 'Custom',
@@ -3282,8 +3825,13 @@ function restoreState(data) {
         density: item.density,
         containsFluid: item.containsFluid,
         color: item.color,
-        isCustom: true
-      });
+        libraryId: item.libraryId,
+        libraryName: item.libraryName,
+        librarySource: item.librarySource,
+        libraryLicense: item.libraryLicense,
+        libraryWebsite: item.libraryWebsite,
+        isCustom: item.isCustom !== undefined ? item.isCustom : true
+      }, libraryMeta);
     }
     const size = item.size || definition.size;
     if (!size) return;
@@ -3319,6 +3867,12 @@ function restoreState(data) {
       containsFluid: Boolean(containsFluid),
       size: { ...size },
       color: baseColor,
+      isCustom: item.isCustom !== undefined ? item.isCustom : Boolean(definition.isCustom),
+      libraryId: definition.libraryId,
+      libraryName: definition.libraryName,
+      librarySource: definition.librarySource,
+      libraryLicense: definition.libraryLicense,
+      libraryWebsite: definition.libraryWebsite,
       labelSprite: null
     };
     syncModuleState(instance);
@@ -3331,6 +3885,7 @@ function restoreState(data) {
   if (state.modulesSolid) {
     separateOverlappingModules();
   }
+  updateModuleLibrarySummary();
   updateModuleList();
   selectModule(null);
   updateAnalysis();
