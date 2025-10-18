@@ -15,7 +15,14 @@
     "three": "^0.160.0"
   },
   "devDependencies": {
-    "electron": "^28.2.4",
-    "electron-builder": "^24.13.3"
+    "electron": "^30.0.9",
+    "electron-builder": "^26.0.12"
+  },
+  "overrides": {
+    "@electron/asar": "file:vendor/@electron/asar",
+    "@electron/get": "file:vendor/@electron/get",
+    "rimraf@2.6.3": "file:vendor/rimraf/2",
+    "rimraf@3.0.2": "file:vendor/rimraf/3",
+    "glob": "^9.3.5"
   }
 }
