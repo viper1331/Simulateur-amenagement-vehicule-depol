@@ -1,0 +1,25 @@
+{
+  "appId": "com.aero.depollution",
+  "productName": "Simulateur_Depollution",
+  "directories": {
+    "output": "dist"
+  },
+  "files": [
+    "**/*",
+    "!dist",
+    "!node_modules/.cache/**"
+  ],
+  "asar": false,
+  "win": {
+    "target": [
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "artifactName": "Simulateur_Depollution.exe"
+  },
+  "portable": {
+    "splashImage": null
+  }
+}

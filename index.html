@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Simulateur 3D de véhicule de dépollution</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="top-bar">
+      <div class="brand">Simulateur 3D de dépollution</div>
+      <div class="actions">
+        <button id="btn-new">Nouveau</button>
+        <button id="btn-open">Ouvrir JSON</button>
+        <button id="btn-save">Sauvegarder JSON</button>
+        <button id="btn-export-png">Exporter PNG</button>
+        <button id="btn-analyze">Analyser</button>
+        <button id="btn-compare">Comparer (A vs B)</button>
+      </div>
+      <input type="file" id="file-input" accept="application/json" hidden>
+    </header>
+    <main class="workspace">
+      <aside class="panel left">
+        <section>
+          <h2>Châssis</h2>
+          <label for="chassis-select">Modèle</label>
+          <select id="chassis-select"></select>
+          <div class="chassis-stats">
+            <div><span>PTAC :</span> <span id="chassis-ptac">-</span></div>
+            <div><span>Empattement :</span> <span id="chassis-wheelbase">-</span></div>
+            <div><span>Masse :</span> <span id="chassis-mass">-</span></div>
+            <div><span>Dimensions :</span> <span id="chassis-dims">-</span></div>
+          </div>
+        </section>
+        <section>
+          <h2>Modules</h2>
+          <div id="module-buttons"></div>
+          <ul id="module-list"></ul>
+        </section>
+        <section>
+          <h2>Couloir de circulation</h2>
+          <label for="walkway-width">Largeur (mm)</label>
+          <input type="range" id="walkway-width" min="400" max="1200" step="50">
+          <div class="range-value"><span id="walkway-width-value">-</span></div>
+          <label class="checkbox">
+            <input type="checkbox" id="walkway-toggle" checked>
+            <span>Afficher le couloir</span>
+          </label>
+        </section>
+      </aside>
+      <section class="viewport">
+        <div id="canvas-container"></div>
+        <div id="hud"></div>
+      </section>
+      <aside class="panel right">
+        <section>
+          <h2>Module sélectionné</h2>
+          <div id="selection-details">
+            <div class="detail"><span>Nom :</span><span id="detail-name">-</span></div>
+            <div class="detail"><span>Masse vide :</span><span id="detail-mass">-</span></div>
+            <div class="detail"><span>Capacité :</span><span id="detail-capacity">-</span></div>
+            <div class="detail"><span>Remplissage :</span>
+              <input type="range" id="detail-fill" min="0" max="100" step="5">
+              <span id="detail-fill-value">0%</span>
+            </div>
+            <div class="detail"><span>Position X :</span><input type="number" id="detail-pos-x" step="0.01"></div>
+            <div class="detail"><span>Position Y :</span><input type="number" id="detail-pos-y" step="0.01"></div>
+            <div class="detail"><span>Position Z :</span><input type="number" id="detail-pos-z" step="0.01"></div>
+            <div class="detail"><span>Rotation Y :</span><input type="number" id="detail-rot-y" step="5"></div>
+          </div>
+        </section>
+        <section>
+          <h2>Analyse rapide</h2>
+          <div class="analysis">
+            <div><span>Masse totale :</span><span id="analysis-mass">-</span></div>
+            <div><span>Centre de gravité :</span><span id="analysis-cog">-</span></div>
+            <div><span>Charge essieu AV :</span><span id="analysis-front">-</span></div>
+            <div><span>Charge essieu AR :</span><span id="analysis-rear">-</span></div>
+            <div><span>Marge PTAC :</span><span id="analysis-margin">-</span></div>
+          </div>
+        </section>
+        <section>
+          <h2>Historique</h2>
+          <div class="history-controls">
+            <button id="btn-undo" title="Ctrl+Z">Annuler</button>
+            <button id="btn-redo" title="Ctrl+Y">Rétablir</button>
+          </div>
+        </section>
+      </aside>
+    </main>
+    <footer class="status-bar">
+      <div class="indicator" id="indicator-ptac">PTAC</div>
+      <div class="indicator" id="indicator-walkway">Couloir</div>
+      <div class="indicator" id="indicator-errors">Erreurs</div>
+      <div class="shortcuts">
+        <span>Sélection: clic gauche</span>
+        <span>Déplacer: mode T + glisser</span>
+        <span>Rotation: mode R + glisser</span>
+        <span>Supprimer: Suppr</span>
+        <span>Undo/Redo: Ctrl+Z / Ctrl+Y</span>
+      </div>
+    </footer>
+  </div>
+  <div id="modal" class="modal hidden">
+    <div class="modal-content">
+      <header>
+        <h3 id="modal-title">Titre</h3>
+        <button id="modal-close">×</button>
+      </header>
+      <div id="modal-body"></div>
+      <footer>
+        <button id="modal-ok">Fermer</button>
+      </footer>
+    </div>
+  </div>
+  <script type="module" src="script.js"></script>
+</body>
+</html>
