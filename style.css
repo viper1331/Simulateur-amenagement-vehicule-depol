@@ -148,6 +148,16 @@ button.ghost:hover {
   gap: 0.4rem;
 }
 
+.inline-form .form-divider {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
 .inline-form input[type="color"] {
   padding: 0;
   border: none;
