@@ -495,6 +495,10 @@ function applyModuleDefinitionUpdate(definition) {
     }
 
     updateModuleLabel(mod);
+    if (mod.mesh) {
+      clampToBounds(mod.mesh.position, mod);
+      syncModuleState(mod);
+    }
   });
 
   if (updated) {
@@ -781,6 +785,24 @@ function getWalkwayOffsetLimits(width, length) {
   return { maxX, maxZ };
 }
 
+function getWalkwayBounds() {
+  const width = getEffectiveWalkwayWidth();
+  const length = getEffectiveWalkwayLength();
+  const limits = getWalkwayOffsetLimits(width, length);
+  const centerX = THREE.MathUtils.clamp(state.walkwayOffsetX || 0, -limits.maxX, limits.maxX);
+  const centerZ = THREE.MathUtils.clamp(state.walkwayOffsetZ || 0, -limits.maxZ, limits.maxZ);
+  return {
+    width,
+    length,
+    centerX,
+    centerZ,
+    minX: centerX - width / 2,
+    maxX: centerX + width / 2,
+    minZ: centerZ - length / 2,
+    maxZ: centerZ + length / 2
+  };
+}
+
 function clampWalkwayOffsets(width, length) {
   const limits = getWalkwayOffsetLimits(width, length);
   const currentX = Number.isFinite(state.walkwayOffsetX) ? state.walkwayOffsetX : 0;
@@ -818,6 +840,7 @@ function applyWalkwayOffset(width, length) {
   const limits = clampWalkwayOffsets(width, length);
   walkwayMesh.position.set(state.walkwayOffsetX, WALKWAY_THICKNESS / 2, state.walkwayOffsetZ);
   syncWalkwayPositionControls(width, length, limits);
+  relocateModulesInsideBounds();
 }
 
 function syncChassisTransparencyControls() {
@@ -1140,7 +1163,9 @@ function bindUIEvents() {
       if (idx === 0) state.selected.mesh.position.x = value;
       if (idx === 1) state.selected.mesh.position.y = value;
       if (idx === 2) state.selected.mesh.position.z = value;
+      clampToBounds(state.selected.mesh.position, state.selected);
       syncModuleState(state.selected);
+      updateSelectionDetails();
       updateAnalysis();
       pushHistory();
     });
@@ -1150,6 +1175,7 @@ function bindUIEvents() {
     if (!state.selected) return;
     const value = Number(ui.detailRotY.value);
     state.selected.mesh.rotation.y = degToRad(value);
+    clampToBounds(state.selected.mesh.position, state.selected);
     syncModuleState(state.selected);
     updateAnalysis();
     pushHistory();
@@ -1454,10 +1480,11 @@ function addModuleInstance(moduleId) {
   };
 
   scene.add(mesh);
-  updateModuleLabel(instance);
   state.modules.push(instance);
+  clampToBounds(mesh.position, instance);
+  syncModuleState(instance);
+  updateModuleLabel(instance);
   selectModule(instance);
-  updateModuleList();
   updateAnalysis();
   pushHistory();
 }
@@ -1590,6 +1617,7 @@ function onPointerMove(event) {
     const rotationStep = degToRad(5);
     const newRot = snapValue(state.selected.mesh.rotation.y + delta * 0.01, rotationStep);
     state.selected.mesh.rotation.y = newRot;
+    clampToBounds(state.selected.mesh.position, state.selected);
     syncModuleState(state.selected);
     updateSelectionDetails();
     updateAnalysis();
@@ -1678,17 +1706,90 @@ function intersectModules(event) {
   return raycaster.intersectObjects(meshes, false);
 }
 
-function moduleFootprintRadius(mod) {
-  const halfX = mod.size.x / 2;
-  const halfZ = mod.size.z / 2;
-  return Math.sqrt(halfX * halfX + halfZ * halfZ);
+function moduleFootprintHalfExtents(mod) {
+  const rotation = mod.mesh ? mod.mesh.rotation.y : (mod.rotation || 0);
+  const halfXLocal = mod.size.x / 2;
+  const halfZLocal = mod.size.z / 2;
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  const absCos = Math.abs(cos);
+  const absSin = Math.abs(sin);
+  return {
+    halfX: absCos * halfXLocal + absSin * halfZLocal,
+    halfZ: absCos * halfZLocal + absSin * halfXLocal
+  };
 }
 
 function clampToBounds(target, module) {
   if (!state.chassisData) return;
-  const radius = moduleFootprintRadius(module);
-  target.x = THREE.MathUtils.clamp(target.x, workspaceBounds.min.x + radius, workspaceBounds.max.x - radius);
-  target.z = THREE.MathUtils.clamp(target.z, workspaceBounds.min.z + radius, workspaceBounds.max.z - radius);
+  const { halfX, halfZ } = moduleFootprintHalfExtents(module);
+  const clampMinX = workspaceBounds.min.x + halfX;
+  const clampMaxX = workspaceBounds.max.x - halfX;
+  const clampMinZ = workspaceBounds.min.z + halfZ;
+  const clampMaxZ = workspaceBounds.max.z - halfZ;
+
+  target.x = THREE.MathUtils.clamp(target.x, clampMinX, clampMaxX);
+  target.z = THREE.MathUtils.clamp(target.z, clampMinZ, clampMaxZ);
+
+  const walkway = getWalkwayBounds();
+  const moduleMinX = target.x - halfX;
+  const moduleMaxX = target.x + halfX;
+  const moduleMinZ = target.z - halfZ;
+  const moduleMaxZ = target.z + halfZ;
+  const overlapX = Math.min(moduleMaxX, walkway.maxX) - Math.max(moduleMinX, walkway.minX);
+  const overlapZ = Math.min(moduleMaxZ, walkway.maxZ) - Math.max(moduleMinZ, walkway.minZ);
+
+  if (overlapX > 0 && overlapZ > 0) {
+    const candidates = [];
+
+    const leftLimit = walkway.minX - halfX;
+    if (leftLimit >= clampMinX) {
+      candidates.push({ axis: 'x', value: leftLimit });
+    }
+
+    const rightLimit = walkway.maxX + halfX;
+    if (rightLimit <= clampMaxX) {
+      candidates.push({ axis: 'x', value: rightLimit });
+    }
+
+    const frontLimit = walkway.minZ - halfZ;
+    if (frontLimit >= clampMinZ) {
+      candidates.push({ axis: 'z', value: frontLimit });
+    }
+
+    const backLimit = walkway.maxZ + halfZ;
+    if (backLimit <= clampMaxZ) {
+      candidates.push({ axis: 'z', value: backLimit });
+    }
+
+    if (candidates.length > 0) {
+      let best = candidates[0];
+      let bestDistance = best.axis === 'x'
+        ? Math.abs(target.x - best.value)
+        : Math.abs(target.z - best.value);
+      for (let i = 1; i < candidates.length; i++) {
+        const candidate = candidates[i];
+        const distance = candidate.axis === 'x'
+          ? Math.abs(target.x - candidate.value)
+          : Math.abs(target.z - candidate.value);
+        if (distance < bestDistance) {
+          best = candidate;
+          bestDistance = distance;
+        }
+      }
+      if (best.axis === 'x') {
+        target.x = best.value;
+      } else {
+        target.z = best.value;
+      }
+    } else {
+      target.x = target.x <= walkway.centerX ? clampMinX : clampMaxX;
+    }
+  }
+
+  target.x = THREE.MathUtils.clamp(target.x, clampMinX, clampMaxX);
+  target.z = THREE.MathUtils.clamp(target.z, clampMinZ, clampMaxZ);
+
   const halfHeight = module.size.y / 2;
   target.y = THREE.MathUtils.clamp(target.y, workspaceBounds.min.y + halfHeight, workspaceBounds.max.y - halfHeight);
 }
@@ -1703,6 +1804,7 @@ function relocateModulesInsideBounds() {
     clampToBounds(mod.mesh.position, mod);
     syncModuleState(mod);
   });
+  updateSelectionDetails();
 }
 
 function onKeyDown(event) {
@@ -1843,15 +1945,7 @@ function updateAnalysis(forceModal = false) {
 
 function detectWalkwayIssues() {
   const issues = [];
-  const walkwayWidth = getEffectiveWalkwayWidth();
-  const walkwayLength = getEffectiveWalkwayLength();
-  const limits = getWalkwayOffsetLimits(walkwayWidth, walkwayLength);
-  const centerX = THREE.MathUtils.clamp(state.walkwayOffsetX || 0, -limits.maxX, limits.maxX);
-  const centerZ = THREE.MathUtils.clamp(state.walkwayOffsetZ || 0, -limits.maxZ, limits.maxZ);
-  const walkwayMinX = centerX - walkwayWidth / 2;
-  const walkwayMaxX = centerX + walkwayWidth / 2;
-  const walkwayMinZ = centerZ - walkwayLength / 2;
-  const walkwayMaxZ = centerZ + walkwayLength / 2;
+  const walkway = getWalkwayBounds();
 
   state.modules.forEach((mod) => {
     const box = new THREE.Box3().setFromObject(mod.mesh);
@@ -1859,8 +1953,8 @@ function detectWalkwayIssues() {
     const maxX = box.max.x;
     const minZ = box.min.z;
     const maxZ = box.max.z;
-    const overlapX = Math.max(0, Math.min(maxX, walkwayMaxX) - Math.max(minX, walkwayMinX));
-    const overlapZ = Math.max(0, Math.min(maxZ, walkwayMaxZ) - Math.max(minZ, walkwayMinZ));
+    const overlapX = Math.max(0, Math.min(maxX, walkway.maxX) - Math.max(minX, walkway.minX));
+    const overlapZ = Math.max(0, Math.min(maxZ, walkway.maxZ) - Math.max(minZ, walkway.minZ));
     if (overlapX > 0 && overlapZ > 0) {
       issues.push(`${mod.name} empiète sur le couloir (${(overlapX * 1000).toFixed(0)} mm)`);
     }
@@ -1944,6 +2038,7 @@ function restoreState(data) {
     mod.mesh.material.dispose();
   });
   state.modules = [];
+  state.selected = null;
 
   (data.modules || []).forEach((item) => {
     if (!item) return;
@@ -2002,6 +2097,7 @@ function restoreState(data) {
     state.modules.push(instance);
   });
 
+  relocateModulesInsideBounds();
   updateModuleList();
   selectModule(null);
   updateAnalysis();
