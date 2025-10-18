@@ -2316,9 +2316,9 @@ function handleCustomModuleSubmit(event) {
     }
     const type = (data.get('type') || '').toString().trim() || 'Custom';
     const shape = normalizeModuleShape(data.get('shape') || 'box');
-    const sizeX = parseMillimeterField(data.get('sizeX'), 'Largeur', { min: 200 });
-    const sizeY = parseMillimeterField(data.get('sizeY'), 'Hauteur', { min: 200 });
-    const sizeZ = parseMillimeterField(data.get('sizeZ'), 'Longueur', { min: 200 });
+    const sizeX = parseMillimeterField(data.get('sizeX'), 'Largeur', { min: 1 });
+    const sizeY = parseMillimeterField(data.get('sizeY'), 'Hauteur', { min: 1 });
+    const sizeZ = parseMillimeterField(data.get('sizeZ'), 'Longueur', { min: 1 });
     const massEmpty = parseNumberField(data.get('massEmpty'), 'Masse à vide', { min: 0 });
     const containsFluid = data.get('containsFluid') === 'on';
     const fluidVolume = containsFluid
