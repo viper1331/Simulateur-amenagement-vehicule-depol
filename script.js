@@ -3683,57 +3683,11 @@ function computeModuleBounds(center, halfX, halfZ) {
   };
 }
 
-function enforceWalkwayClearance(target, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ) {
-  const walkway = getWalkwayBounds();
-  if (!walkway) return;
-
-  const bounds = computeModuleBounds(target, halfX, halfZ);
-  const overlapX = Math.min(bounds.maxX, walkway.maxX) - Math.max(bounds.minX, walkway.minX);
-  const overlapZ = Math.min(bounds.maxZ, walkway.maxZ) - Math.max(bounds.minZ, walkway.minZ);
-
-  if (overlapX > 0 && overlapZ > 0) {
-    const candidates = [];
-
-    const leftLimit = walkway.minX - halfX;
-    if (leftLimit >= clampMinX - 1e-6) {
-      candidates.push({ axis: 'x', value: leftLimit });
-    }
-
-    const rightLimit = walkway.maxX + halfX;
-    if (rightLimit <= clampMaxX + 1e-6) {
-      candidates.push({ axis: 'x', value: rightLimit });
-    }
-
-    const frontLimit = walkway.minZ - halfZ;
-    if (frontLimit >= clampMinZ - 1e-6) {
-      candidates.push({ axis: 'z', value: frontLimit });
-    }
-
-    const backLimit = walkway.maxZ + halfZ;
-    if (backLimit <= clampMaxZ + 1e-6) {
-      candidates.push({ axis: 'z', value: backLimit });
-    }
-
-    if (candidates.length > 0) {
-      let best = candidates[0];
-      let bestDistance = Math.abs((best.axis === 'x' ? target.x : target.z) - best.value);
-      for (let i = 1; i < candidates.length; i++) {
-        const candidate = candidates[i];
-        const distance = Math.abs((candidate.axis === 'x' ? target.x : target.z) - candidate.value);
-        if (distance < bestDistance) {
-          best = candidate;
-          bestDistance = distance;
-        }
-      }
-      if (best.axis === 'x') {
-        target.x = THREE.MathUtils.clamp(best.value, clampMinX, clampMaxX);
-      } else {
-        target.z = THREE.MathUtils.clamp(best.value, clampMinZ, clampMaxZ);
-      }
-    } else {
-      target.x = target.x <= walkway.centerX ? clampMinX : clampMaxX;
-    }
-  }
+function enforceWalkwayClearance() {
+  // Les modules peuvent désormais empiéter sur le couloir. La détection des
+  // conflits reste assurée via detectWalkwayIssues() pour conserver l'alerte
+  // visuelle, mais aucune contrainte supplémentaire n'est appliquée lors du
+  // déplacement.
 }
 
 function addMagnetCandidate(candidates, newValue, currentValue, clampMin, clampMax) {
@@ -3834,7 +3788,7 @@ function enforceSolidCollisions(target, module, halfX, halfZ, clampMinX, clampMa
           target.z += direction * (overlapZ + COLLISION_EPSILON);
           target.z = THREE.MathUtils.clamp(target.z, clampMinZ, clampMaxZ);
         }
-        enforceWalkwayClearance(target, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ);
+        enforceWalkwayClearance();
         resolved = true;
         break;
       }
@@ -3873,12 +3827,12 @@ function clampToBounds(target, module) {
   target.z = THREE.MathUtils.clamp(target.z, clampMinZ, clampMaxZ);
 
   applyModuleMagnetism(target, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ);
-  enforceWalkwayClearance(target, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ);
+  enforceWalkwayClearance();
   enforceSolidCollisions(target, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ);
 
   target.x = THREE.MathUtils.clamp(target.x, clampMinX, clampMaxX);
   target.z = THREE.MathUtils.clamp(target.z, clampMinZ, clampMaxZ);
-  enforceWalkwayClearance(target, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ);
+  enforceWalkwayClearance();
 
   target.y = THREE.MathUtils.clamp(target.y, workspaceBounds.min.y + halfHeight, workspaceBounds.max.y - halfHeight);
 }
