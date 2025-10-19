@@ -5202,9 +5202,9 @@ function clampToBounds(target, module, options = {}) {
 
     candidate.y = previousPosition.y + (target.y - previousPosition.y) * resistanceScale;
 
-    applyModuleMagnetism(candidate, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ);
+    applyModuleMagnetism(candidate, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ, ignoreSet);
     enforceWalkwayClearance();
-    enforceSolidCollisions(candidate, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ);
+    enforceSolidCollisions(candidate, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ, ignoreSet);
 
     target.copy(candidate);
   }
