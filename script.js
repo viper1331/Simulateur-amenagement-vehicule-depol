@@ -267,6 +267,142 @@ function isElementModule(module) {
   return Boolean(module && isElementType(module.type));
 }
 
+const FUSION_GROUP_PREFIX = 'fusion-group';
+
+function generateFusionGroupId() {
+  return `${FUSION_GROUP_PREFIX}-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+}
+
+function rebuildFusionGroupsFromState() {
+  state.fusionGroups = new Map();
+  state.modules.forEach((mod) => {
+    if (!mod || !mod.fusionGroupId) return;
+    if (!state.fusionGroups.has(mod.fusionGroupId)) {
+      state.fusionGroups.set(mod.fusionGroupId, new Set());
+    }
+    state.fusionGroups.get(mod.fusionGroupId).add(mod);
+  });
+  for (const [groupId, members] of state.fusionGroups) {
+    if (members.size < 2) {
+      members.forEach((member) => {
+        if (member) {
+          member.fusionGroupId = null;
+        }
+      });
+      state.fusionGroups.delete(groupId);
+    }
+  }
+}
+
+function getActiveFusionGroup(module) {
+  if (!module || !module.fusionGroupId || !state.fusionGroups) {
+    return null;
+  }
+  const storedGroup = state.fusionGroups.get(module.fusionGroupId);
+  if (!storedGroup) {
+    module.fusionGroupId = null;
+    return null;
+  }
+  const members = new Set();
+  storedGroup.forEach((member) => {
+    if (member && state.modules.includes(member)) {
+      members.add(member);
+    }
+  });
+  if (members.size < 2) {
+    members.forEach((member) => {
+      if (member) {
+        member.fusionGroupId = null;
+      }
+    });
+    state.fusionGroups.delete(module.fusionGroupId);
+    module.fusionGroupId = null;
+    return null;
+  }
+  if (members.size !== storedGroup.size) {
+    state.fusionGroups.set(module.fusionGroupId, members);
+  }
+  return members;
+}
+
+function detachModuleFromGroup(module) {
+  if (!module || !module.fusionGroupId || !state.fusionGroups) {
+    return;
+  }
+  const groupId = module.fusionGroupId;
+  const group = state.fusionGroups.get(groupId);
+  if (!group) {
+    module.fusionGroupId = null;
+    return;
+  }
+  group.delete(module);
+  module.fusionGroupId = null;
+  if (group.size < 2) {
+    group.forEach((member) => {
+      if (member) {
+        member.fusionGroupId = null;
+      }
+    });
+    state.fusionGroups.delete(groupId);
+  }
+}
+
+function assignModulesToFusionGroup(modules) {
+  if (!Array.isArray(modules) || modules.length < 2) {
+    return null;
+  }
+  if (!state.fusionGroups || typeof state.fusionGroups.set !== 'function') {
+    state.fusionGroups = new Map();
+  }
+  const uniqueModules = [];
+  const seen = new Set();
+  modules.forEach((mod) => {
+    if (!mod || seen.has(mod)) return;
+    uniqueModules.push(mod);
+    seen.add(mod);
+  });
+  if (uniqueModules.length < 2) {
+    return null;
+  }
+  const allMembers = new Set();
+  const groupsToMerge = new Set();
+  uniqueModules.forEach((mod) => {
+    allMembers.add(mod);
+    if (mod.fusionGroupId && state.fusionGroups && state.fusionGroups.has(mod.fusionGroupId)) {
+      groupsToMerge.add(mod.fusionGroupId);
+    }
+  });
+  groupsToMerge.forEach((groupId) => {
+    const group = state.fusionGroups.get(groupId);
+    if (group) {
+      group.forEach((member) => {
+        if (member) {
+          allMembers.add(member);
+          member.fusionGroupId = null;
+        }
+      });
+    }
+    state.fusionGroups.delete(groupId);
+  });
+  const filteredMembers = [...allMembers].filter((member) => member && state.modules.includes(member));
+  if (filteredMembers.length < 2) {
+    filteredMembers.forEach((member) => {
+      if (member) {
+        member.fusionGroupId = null;
+      }
+    });
+    return null;
+  }
+  const groupId = generateFusionGroupId();
+  const groupSet = new Set();
+  filteredMembers.forEach((member) => {
+    member.fusionGroupId = groupId;
+    groupSet.add(member);
+  });
+  state.fusionGroups.set(groupId, groupSet);
+  return groupId;
+}
+
 function slugify(value) {
   if (value === null || value === undefined) {
     return '';
@@ -1267,6 +1403,7 @@ const state = {
   selected: null,
   clipboard: null,
   fusionSelection: new Set(),
+  fusionGroups: new Map(),
   mode: 'translate',
   compareReference: null,
   lastAnalysis: null
@@ -1290,6 +1427,9 @@ let raycaster, pointer, dragPlane, dragActive = false;
 let dragOffset = new THREE.Vector3();
 let dragMode = 'horizontal';
 let dragKind = null;
+let dragFusionGroup = null;
+const dragFusionInitialPositions = new Map();
+const dragFusionInitialRotations = new Map();
 let workspaceBounds = new THREE.Box3();
 let walkwayMesh, chassisGroup, gabaritGroup, usableVisualGroup, usableHandleGroup;
 let activeHandle = null;
@@ -2845,12 +2985,39 @@ function bindUIEvents() {
   positionInputs.forEach((input, idx) => {
     input.addEventListener('change', () => {
       if (!state.selected) return;
-      const value = snapValue(Number(input.value));
-      if (idx === 0) state.selected.mesh.position.x = value;
-      if (idx === 1) state.selected.mesh.position.y = value;
-      if (idx === 2) state.selected.mesh.position.z = value;
-      clampToBounds(state.selected.mesh.position, state.selected);
-      syncModuleState(state.selected);
+      const rawValue = Number(input.value);
+      if (!Number.isFinite(rawValue)) {
+        updateSelectionDetails();
+        return;
+      }
+      const value = snapValue(rawValue);
+      const axes = ['x', 'y', 'z'];
+      const axis = axes[idx];
+      const currentPosition = state.selected.mesh.position.clone();
+      const desiredPosition = currentPosition.clone();
+      desiredPosition[axis] = value;
+      const group = getActiveFusionGroup(state.selected);
+      if (group) {
+        const adjustedPosition = desiredPosition.clone();
+        clampToBounds(adjustedPosition, state.selected);
+        const delta = adjustedPosition.clone().sub(currentPosition);
+        const newPositions = new Map();
+        newPositions.set(state.selected, adjustedPosition);
+        group.forEach((member) => {
+          if (member === state.selected) return;
+          const candidate = member.mesh.position.clone().add(delta);
+          clampToBounds(candidate, member);
+          newPositions.set(member, candidate);
+        });
+        newPositions.forEach((pos, member) => {
+          member.mesh.position.copy(pos);
+          syncModuleState(member);
+        });
+      } else {
+        state.selected.mesh.position.copy(desiredPosition);
+        clampToBounds(state.selected.mesh.position, state.selected);
+        syncModuleState(state.selected);
+      }
       updateSelectionDetails();
       updateAnalysis();
       pushHistory();
@@ -2871,8 +3038,24 @@ function bindUIEvents() {
         updateSelectionDetails();
         return;
       }
-      state.selected.mesh.rotation[axis] = degToRad(value);
+      const radians = degToRad(value);
+      const currentRotation = state.selected.mesh.rotation[axis];
+      const deltaRotation = radians - currentRotation;
+      if (deltaRotation === 0) {
+        updateSelectionDetails();
+        return;
+      }
+      state.selected.mesh.rotation[axis] = radians;
       clampToBounds(state.selected.mesh.position, state.selected);
+      const group = getActiveFusionGroup(state.selected);
+      if (group) {
+        group.forEach((member) => {
+          if (member === state.selected) return;
+          member.mesh.rotation[axis] += deltaRotation;
+          clampToBounds(member.mesh.position, member);
+          syncModuleState(member);
+        });
+      }
       syncModuleState(state.selected);
       updateSelectionDetails();
       updateAnalysis();
@@ -3238,6 +3421,7 @@ function addModuleInstance(moduleId) {
     librarySource: definition.librarySource,
     libraryLicense: definition.libraryLicense,
     libraryWebsite: definition.libraryWebsite,
+    fusionGroupId: null,
     labelSprite: null
   };
 
@@ -3429,6 +3613,13 @@ function updateModuleList() {
     name.className = 'module-list-name';
     name.textContent = mod.name;
     li.appendChild(name);
+    if (mod.fusionGroupId) {
+      li.classList.add('fusion-linked');
+      const badge = document.createElement('span');
+      badge.className = 'module-list-badge';
+      badge.textContent = 'Lié';
+      li.appendChild(badge);
+    }
 
     const actions = document.createElement('div');
     actions.className = 'module-list-actions';
@@ -3458,84 +3649,21 @@ function fuseSelectedElements() {
     showModal('Information', 'Sélectionnez au moins deux modules de type « Elements » à fusionner.');
     return;
   }
-
-  const fusedBox = new THREE.Box3();
-  modules.forEach((mod, index) => {
-    const box = new THREE.Box3().setFromObject(mod.mesh);
-    if (index === 0) {
-      fusedBox.copy(box);
-    } else {
-      fusedBox.union(box);
-    }
-  });
-
-  const fusedSize = new THREE.Vector3();
-  fusedBox.getSize(fusedSize);
-  if (!Number.isFinite(fusedSize.x) || !Number.isFinite(fusedSize.y) || !Number.isFinite(fusedSize.z)) {
-    showModal('Erreur', 'Impossible de déterminer les dimensions du module fusionné.');
+  const groupId = assignModulesToFusionGroup(modules);
+  if (!groupId) {
+    showModal('Information', 'Aucun lien n’a été créé. Vérifiez votre sélection.');
     return;
-  }
-
-  const safeSize = {
-    x: Math.max(fusedSize.x, 0.05),
-    y: Math.max(fusedSize.y, 0.05),
-    z: Math.max(fusedSize.z, 0.05)
-  };
-
-  const massEmpty = modules.reduce((sum, mod) => sum + (Number(mod.massEmpty) || 0), 0);
-  const totalFluidVolume = modules.reduce(
-    (sum, mod) => sum + (mod.containsFluid ? Number(mod.fluidVolume) || 0 : 0),
-    0
-  );
-  const filledVolume = modules.reduce(
-    (sum, mod) => sum + (mod.containsFluid ? (Number(mod.fluidVolume) || 0) * ((Number(mod.fill) || 0) / 100) : 0),
-    0
-  );
-  const densityAccumulator = modules.reduce(
-    (sum, mod) => sum + (mod.containsFluid ? (Number(mod.fluidVolume) || 0) * (Number(mod.density) || 0) : 0),
-    0
-  );
-
-  const containsFluid = totalFluidVolume > 0;
-  const defaultFill = containsFluid && totalFluidVolume > 0
-    ? Math.min(100, Math.max(0, (filledVolume / totalFluidVolume) * 100))
-    : 0;
-  const density = containsFluid && totalFluidVolume > 0
-    ? Math.max(1, densityAccumulator / totalFluidVolume)
-    : 0;
-
-  const fusedDefinition = {
-    name: `Fusion éléments (${modules.length})`,
-    type: 'Fusion',
-    shape: 'box',
-    size: safeSize,
-    massEmpty,
-    containsFluid,
-    fluidVolume: containsFluid ? totalFluidVolume : 0,
-    defaultFill: containsFluid ? defaultFill : 0,
-    density: containsFluid ? density : 0,
-    color: modules[0]?.color ?? 0x2c7ef4
-  };
-
-  if (!ui.moduleForm || !ui.btnAddModule) {
-    showModal('Information', 'Le formulaire de création de module est indisponible.');
-    return;
-  }
-
-  ui.moduleForm.reset();
-  resetModuleFormState();
-  setFormCollapsed(ui.btnAddModule, ui.moduleForm, false);
-  populateModuleForm(fusedDefinition);
-  ui.moduleForm.dataset.mode = 'create';
-  delete ui.moduleForm.dataset.targetId;
-  const nameInput = ui.moduleForm.querySelector('#module-name');
-  if (nameInput) {
-    nameInput.focus();
-    nameInput.select();
   }
 
   state.fusionSelection.clear();
   updateModuleList();
+  updateSelectionDetails();
+  updateAnalysis();
+  pushHistory();
+  showModal(
+    'Fusion des éléments',
+    'Les éléments sélectionnés sont désormais liés. Déplacez ou faites pivoter l’un d’eux pour déplacer tout le groupe.'
+  );
 }
 
 function createModuleClipboardPayload(mod) {
@@ -3658,6 +3786,7 @@ function pasteModuleFromClipboard() {
     librarySource: payload.librarySource ?? definition.librarySource,
     libraryLicense: payload.libraryLicense ?? definition.libraryLicense,
     libraryWebsite: payload.libraryWebsite ?? definition.libraryWebsite,
+    fusionGroupId: null,
     labelSprite: null
   };
 
@@ -3670,6 +3799,26 @@ function pasteModuleFromClipboard() {
   updateAnalysis();
   pushHistory();
   return true;
+}
+
+function resetFusionDragState() {
+  dragFusionGroup = null;
+  dragFusionInitialPositions.clear();
+  dragFusionInitialRotations.clear();
+}
+
+function prepareFusionDrag(module) {
+  resetFusionDragState();
+  const group = getActiveFusionGroup(module);
+  if (!group) {
+    return;
+  }
+  dragFusionGroup = new Set(group);
+  dragFusionGroup.forEach((member) => {
+    if (!member || !member.mesh) return;
+    dragFusionInitialPositions.set(member, member.mesh.position.clone());
+    dragFusionInitialRotations.set(member, member.mesh.rotation.clone());
+  });
 }
 
 function onPointerDown(event) {
@@ -3696,6 +3845,7 @@ function onPointerDown(event) {
     if (module) {
       selectModule(module);
       if (state.mode === 'translate' || state.mode === 'rotate') {
+        prepareFusionDrag(module);
         dragActive = true;
         dragKind = state.mode === 'translate' ? 'module-translate' : 'module-rotate';
         dragMode = 'horizontal';
@@ -3756,18 +3906,61 @@ function onPointerMove(event) {
       target.x = snapValue(target.x);
       target.z = snapValue(target.z);
     }
-    clampToBounds(target, state.selected);
-    state.selected.mesh.position.copy(target);
-    syncModuleState(state.selected);
+    const activeGroup = dragFusionGroup && dragFusionGroup.has(state.selected)
+      ? dragFusionGroup
+      : null;
+    if (activeGroup && dragFusionInitialPositions.has(state.selected)) {
+      const initialSelected = dragFusionInitialPositions.get(state.selected);
+      const clampedTarget = target.clone();
+      clampToBounds(clampedTarget, state.selected);
+      const delta = clampedTarget.clone().sub(initialSelected);
+      const newPositions = new Map();
+      newPositions.set(state.selected, clampedTarget);
+      activeGroup.forEach((member) => {
+        if (member === state.selected) return;
+        const initial = dragFusionInitialPositions.get(member);
+        if (!initial) return;
+        const candidate = initial.clone().add(delta);
+        clampToBounds(candidate, member);
+        newPositions.set(member, candidate);
+      });
+      newPositions.forEach((pos, member) => {
+        member.mesh.position.copy(pos);
+        syncModuleState(member);
+      });
+    } else {
+      clampToBounds(target, state.selected);
+      state.selected.mesh.position.copy(target);
+      syncModuleState(state.selected);
+    }
     updateSelectionDetails();
     updateAnalysis();
   } else if (dragKind === 'module-rotate') {
     const delta = event.movementX;
     const rotationStep = degToRad(5);
-    const newRot = snapValue(state.selected.mesh.rotation.y + delta * 0.01, rotationStep);
-    state.selected.mesh.rotation.y = newRot;
-    clampToBounds(state.selected.mesh.position, state.selected);
-    syncModuleState(state.selected);
+    const currentRotation = state.selected.mesh.rotation.y;
+    const newRot = snapValue(currentRotation + delta * 0.01, rotationStep);
+    if (newRot !== currentRotation) {
+      state.selected.mesh.rotation.y = newRot;
+      clampToBounds(state.selected.mesh.position, state.selected);
+      const activeGroup = dragFusionGroup && dragFusionGroup.has(state.selected)
+        ? dragFusionGroup
+        : null;
+      if (activeGroup && dragFusionInitialRotations.has(state.selected)) {
+        const initialSelectedRotation = dragFusionInitialRotations.get(state.selected);
+        const baseSelected = initialSelectedRotation ? initialSelectedRotation.y : currentRotation;
+        const totalDelta = newRot - baseSelected;
+        activeGroup.forEach((member) => {
+          if (member === state.selected) return;
+          const initialRotation = dragFusionInitialRotations.get(member);
+          const base = initialRotation ? initialRotation.y : member.mesh.rotation.y;
+          member.mesh.rotation.y = base + totalDelta;
+          clampToBounds(member.mesh.position, member);
+          syncModuleState(member);
+        });
+      }
+      syncModuleState(state.selected);
+    }
     updateSelectionDetails();
     updateAnalysis();
   }
@@ -3781,6 +3974,7 @@ function onPointerUp(event) {
     } catch (err) {
       /* noop */
     }
+    resetFusionDragState();
     return;
   }
   if (dragActive && dragKind === 'usable-handle') {
@@ -3797,6 +3991,7 @@ function onPointerUp(event) {
     } catch (err) {
       /* noop */
     }
+    resetFusionDragState();
     pushHistory();
     updateHud(event);
     return;
@@ -3806,6 +4001,7 @@ function onPointerUp(event) {
     dragMode = 'horizontal';
     dragKind = null;
     renderer.domElement.releasePointerCapture(event.pointerId);
+    resetFusionDragState();
     pushHistory();
   }
 }
@@ -3944,7 +4140,7 @@ function pickMagnetDelta(candidates, threshold) {
   return bestAbs <= threshold ? bestDelta : 0;
 }
 
-function applyModuleMagnetism(target, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ) {
+function applyModuleMagnetism(target, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ, ignoredModules = null) {
   if (!state.magnetismEnabled) return;
   const threshold = Number.isFinite(state.magnetSnapDistance)
     ? Math.max(state.magnetSnapDistance, 0)
@@ -3971,6 +4167,7 @@ function applyModuleMagnetism(target, module, halfX, halfZ, clampMinX, clampMaxX
 
   state.modules.forEach((other) => {
     if (other === module || !other.mesh) return;
+    if (ignoredModules && ignoredModules.has(other)) return;
     const { halfX: otherHalfX, halfZ: otherHalfZ } = moduleFootprintHalfExtents(other);
     const otherPos = other.mesh.position;
     addMagnetCandidate(magnetCandidatesX, otherPos.x, target.x, clampMinX, clampMaxX);
@@ -3997,13 +4194,14 @@ function applyModuleMagnetism(target, module, halfX, halfZ, clampMinX, clampMaxX
   }
 }
 
-function enforceSolidCollisions(target, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ) {
+function enforceSolidCollisions(target, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ, ignoredModules = null) {
   if (!state.modulesSolid) return;
   const maxIterations = Math.max(1, state.modules.length);
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     let resolved = false;
     for (const other of state.modules) {
       if (other === module || !other.mesh) continue;
+      if (ignoredModules && ignoredModules.has(other)) continue;
       const { halfX: otherHalfX, halfZ: otherHalfZ } = moduleFootprintHalfExtents(other);
       const otherPos = other.mesh.position;
       const otherBounds = computeModuleBounds(otherPos, otherHalfX, otherHalfZ);
@@ -4031,8 +4229,8 @@ function enforceSolidCollisions(target, module, halfX, halfZ, clampMinX, clampMa
   }
 }
 
-function clampToBounds(target, module) {
-  if (!state.chassisData || !target) return;
+function clampToBounds(target, module, options = {}) {
+  if (!state.chassisData) return;
 
   let halfX = 0;
   let halfZ = 0;
@@ -4061,6 +4259,25 @@ function clampToBounds(target, module) {
     ? module.mesh.position.clone()
     : target.clone();
 
+  let ignoreSet = null;
+  if (options.ignoredModules) {
+    ignoreSet = new Set(options.ignoredModules);
+  }
+  const group = getActiveFusionGroup(module);
+  if (group) {
+    if (!ignoreSet) {
+      ignoreSet = new Set();
+    }
+    group.forEach((member) => {
+      if (member && member !== module) {
+        ignoreSet.add(member);
+      }
+    });
+  }
+
+  applyModuleMagnetism(target, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ, ignoreSet);
+  enforceWalkwayClearance();
+  enforceSolidCollisions(target, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ, ignoreSet);
   const isInsideWorkspace = (
     target.x >= clampMinX && target.x <= clampMaxX &&
     target.y >= clampMinY && target.y <= clampMaxY &&
@@ -4161,6 +4378,7 @@ function removeModule(mod, options = {}) {
     scene.remove(mod.mesh);
     mod.mesh.geometry.dispose();
     mod.mesh.material.dispose();
+    detachModuleFromGroup(mod);
     state.modules.splice(index, 1);
     if (state.fusionSelection) {
       state.fusionSelection.delete(mod.id);
@@ -4317,6 +4535,7 @@ function resetScene() {
   if (state.fusionSelection) {
     state.fusionSelection.clear();
   }
+  state.fusionGroups = new Map();
   updateModuleList();
   updateSelectionDetails();
   updateAnalysis();
@@ -4357,6 +4576,7 @@ function serializeState() {
       libraryLicense: mod.libraryLicense,
       libraryWebsite: mod.libraryWebsite,
       isCustom: mod.isCustom,
+      fusionGroupId: mod.fusionGroupId || null,
       position: mod.mesh.position.toArray(),
       rotation: [mod.mesh.rotation.x, mod.mesh.rotation.y, mod.mesh.rotation.z],
       rotationY: mod.mesh.rotation.y
@@ -4425,6 +4645,7 @@ function restoreState(data) {
   if (state.fusionSelection) {
     state.fusionSelection.clear();
   }
+  state.fusionGroups = new Map();
 
   (data.modules || []).forEach((item) => {
     if (!item) return;
@@ -4518,6 +4739,7 @@ function restoreState(data) {
       librarySource: definition.librarySource,
       libraryLicense: definition.libraryLicense,
       libraryWebsite: definition.libraryWebsite,
+      fusionGroupId: item.fusionGroupId ?? null,
       labelSprite: null
     };
     syncModuleState(instance);
@@ -4525,6 +4747,8 @@ function restoreState(data) {
     updateModuleLabel(instance);
     state.modules.push(instance);
   });
+
+  rebuildFusionGroupsFromState();
 
   relocateModulesInsideBounds();
   if (state.modulesSolid) {
