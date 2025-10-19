@@ -1434,7 +1434,7 @@ function applyDisplayFilters() {
 }
 
 const DEFAULT_WALKWAY_LENGTH = 12;
-const WALKWAY_THICKNESS = 0.05;
+const WALKWAY_VISUAL_OFFSET = 0.002; // Laisse le plan du couloir juste au-dessus du plancher
 const MIN_WALKWAY_WIDTH = 0.4;
 const WALKWAY_SIDE_CLEARANCE = 0.05;
 const WALKWAY_END_CLEARANCE = 0.2;
@@ -2106,7 +2106,7 @@ function applyWalkwayOffset(width, length) {
   const baseZ = state.chassisData && Number.isFinite(state.chassisData.usableCenterOffsetZ)
     ? state.chassisData.usableCenterOffsetZ
     : 0;
-  walkwayMesh.position.set(baseX + state.walkwayOffsetX, WALKWAY_THICKNESS / 2, baseZ + state.walkwayOffsetZ);
+  walkwayMesh.position.set(baseX + state.walkwayOffsetX, WALKWAY_VISUAL_OFFSET, baseZ + state.walkwayOffsetZ);
   syncWalkwayPositionControls(width, length, limits);
   relocateModulesInsideBounds();
 }
@@ -2136,11 +2136,13 @@ function createWalkwayMesh(width, length, visible) {
     color: 0x21c77a,
     opacity: 0.18,
     transparent: true,
-    depthWrite: false
+    depthWrite: false,
+    side: THREE.DoubleSide
   });
-  const geom = new THREE.BoxGeometry(width, WALKWAY_THICKNESS, length);
+  const geom = new THREE.PlaneGeometry(width, length);
   const mesh = new THREE.Mesh(geom, mat);
-  mesh.position.y = WALKWAY_THICKNESS / 2;
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = WALKWAY_VISUAL_OFFSET;
   mesh.visible = visible;
   mesh.name = 'walkway';
   // Le couloir ne doit pas intercepter les clics afin de faciliter la
@@ -2159,7 +2161,8 @@ function updateWalkway() {
     syncWalkwayControls(width);
   }
   walkwayMesh.geometry.dispose();
-  walkwayMesh.geometry = new THREE.BoxGeometry(width, WALKWAY_THICKNESS, length);
+  walkwayMesh.geometry = new THREE.PlaneGeometry(width, length);
+  walkwayMesh.rotation.x = -Math.PI / 2;
   walkwayMesh.visible = state.walkwayVisible;
   applyWalkwayOffset(width, length);
 }
