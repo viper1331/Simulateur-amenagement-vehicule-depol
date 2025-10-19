@@ -128,11 +128,67 @@ button.compact {
 }
 
 .panel h2 {
-  margin-top: 0;
+  margin: 0;
   font-size: 1rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
+}
+
+.section-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+  cursor: pointer;
+  padding: 0.2rem 0;
+  transition: color 0.2s ease;
+}
+
+.section-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.section-toggle:hover {
+  color: var(--text);
+}
+
+.section-toggle-label {
+  flex: 1;
+  text-align: left;
+}
+
+.section-toggle-icon {
+  width: 0.75rem;
+  height: 0.75rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.section-toggle[aria-expanded="false"] .section-toggle-icon {
+  transform: rotate(-135deg);
+}
+
+.section-content {
+  margin-top: 0.75rem;
+}
+
+.panel section.is-collapsed .section-content {
+  display: none;
+}
+
+.panel section.is-collapsed .section-toggle {
+  color: rgba(148, 163, 184, 0.75);
 }
 
 .panel section + section {

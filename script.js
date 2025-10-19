@@ -1443,6 +1443,56 @@ const orbitState = {
 
 const ui = {};
 
+function initCollapsibleSections() {
+  const sections = document.querySelectorAll('.panel section');
+  sections.forEach((section) => {
+    if (section.classList.contains('has-collapsible')) return;
+    let header = section.querySelector(':scope > h2');
+    if (!header || header.parentElement !== section) {
+      header = Array.from(section.children).find((child) => child.tagName === 'H2');
+    }
+    if (!header) return;
+    const labelText = header.textContent.trim();
+    const toggleButton = document.createElement('button');
+    toggleButton.type = 'button';
+    toggleButton.className = 'section-toggle';
+    toggleButton.setAttribute('aria-expanded', 'true');
+
+    const labelSpan = document.createElement('span');
+    labelSpan.className = 'section-toggle-label';
+    labelSpan.textContent = labelText;
+
+    const iconSpan = document.createElement('span');
+    iconSpan.className = 'section-toggle-icon';
+    iconSpan.setAttribute('aria-hidden', 'true');
+
+    toggleButton.appendChild(labelSpan);
+    toggleButton.appendChild(iconSpan);
+
+    header.textContent = '';
+    header.appendChild(toggleButton);
+
+    const contentWrapper = document.createElement('div');
+    contentWrapper.className = 'section-content';
+
+    let sibling = header.nextSibling;
+    while (sibling) {
+      const nextSibling = sibling.nextSibling;
+      contentWrapper.appendChild(sibling);
+      sibling = nextSibling;
+    }
+
+    section.appendChild(contentWrapper);
+    section.classList.add('has-collapsible');
+
+    toggleButton.addEventListener('click', () => {
+      const isExpanded = toggleButton.getAttribute('aria-expanded') === 'true';
+      toggleButton.setAttribute('aria-expanded', String(!isExpanded));
+      section.classList.toggle('is-collapsed', isExpanded);
+    });
+  });
+}
+
 function disposeObject3D(object) {
   if (!object) return;
   if (object.children && object.children.length) {
@@ -2103,6 +2153,7 @@ function updateWalkway() {
 }
 
 function initUI() {
+  initCollapsibleSections();
   ui.chassisSelect = document.getElementById('chassis-select');
   ui.chassisPtac = document.getElementById('chassis-ptac');
   ui.chassisWheelbase = document.getElementById('chassis-wheelbase');
