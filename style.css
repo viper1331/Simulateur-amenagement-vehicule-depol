@@ -592,7 +592,7 @@ input[type="range"] {
   border-radius: 4px;
   font-size: 0.9rem;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
   gap: 0.4rem;
 }
@@ -613,6 +613,7 @@ input[type="range"] {
 .module-list-actions {
   display: flex;
   gap: 0.3rem;
+  margin-left: auto;
 }
 
 #module-list li button {
@@ -623,6 +624,20 @@ input[type="range"] {
   justify-content: center;
   color: var(--muted);
   font-style: italic;
+}
+
+.module-list-selector {
+  display: flex;
+  align-items: center;
+}
+
+.module-list-selector input {
+  margin: 0;
+}
+
+#btn-fuse-elements {
+  margin-top: 0.5rem;
+  width: 100%;
 }
 
 .viewport {
