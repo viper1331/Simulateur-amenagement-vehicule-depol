@@ -4,7 +4,7 @@ import { unzipSync, strFromU8 } from './libs/fflate.module.js';
 const mmToM = (value) => (Number.isFinite(value) ? value / 1000 : null);
 const mToMm = (value) => (Number.isFinite(value) ? value * 1000 : null);
 const DEFAULT_SNAP_STEP = 0.001;
-const WORKSPACE_RESISTANCE_FACTOR = 0.35;
+const WORKSPACE_RESISTANCE_FACTOR = 0.6;
 const snapValue = (value, step = DEFAULT_SNAP_STEP) => Math.round(value / step) * step;
 const degToRad = (deg) => deg * Math.PI / 180;
 const radToDeg = (rad) => rad * 180 / Math.PI;
