@@ -4,6 +4,7 @@ import { unzipSync, strFromU8 } from './libs/fflate.module.js';
 const mmToM = (value) => (Number.isFinite(value) ? value / 1000 : null);
 const mToMm = (value) => (Number.isFinite(value) ? value * 1000 : null);
 const DEFAULT_SNAP_STEP = 0.001;
+const WORKSPACE_RESISTANCE_FACTOR = 0.35;
 const snapValue = (value, step = DEFAULT_SNAP_STEP) => Math.round(value / step) * step;
 const degToRad = (deg) => deg * Math.PI / 180;
 const radToDeg = (rad) => rad * 180 / Math.PI;
@@ -4031,18 +4032,18 @@ function enforceSolidCollisions(target, module, halfX, halfZ, clampMinX, clampMa
 }
 
 function clampToBounds(target, module) {
-  if (!state.chassisData) return;
+  if (!state.chassisData || !target) return;
 
   let halfX = 0;
   let halfZ = 0;
   let halfHeight = 0;
 
-  if (module.mesh) {
+  if (module && module.mesh) {
     const box = new THREE.Box3().setFromObject(module.mesh);
     halfX = Math.max(0, (box.max.x - box.min.x) / 2);
     halfZ = Math.max(0, (box.max.z - box.min.z) / 2);
     halfHeight = Math.max(0, (box.max.y - box.min.y) / 2);
-  } else {
+  } else if (module) {
     const footprint = moduleFootprintHalfExtents(module);
     halfX = footprint.halfX;
     halfZ = footprint.halfZ;
@@ -4051,21 +4052,34 @@ function clampToBounds(target, module) {
 
   const clampMinX = workspaceBounds.min.x + halfX;
   const clampMaxX = workspaceBounds.max.x - halfX;
+  const clampMinY = workspaceBounds.min.y + halfHeight;
+  const clampMaxY = workspaceBounds.max.y - halfHeight;
   const clampMinZ = workspaceBounds.min.z + halfZ;
   const clampMaxZ = workspaceBounds.max.z - halfZ;
 
-  target.x = THREE.MathUtils.clamp(target.x, clampMinX, clampMaxX);
-  target.z = THREE.MathUtils.clamp(target.z, clampMinZ, clampMaxZ);
+  const previousPosition = module && module.mesh && module.mesh.position
+    ? module.mesh.position.clone()
+    : target.clone();
 
-  applyModuleMagnetism(target, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ);
-  enforceWalkwayClearance();
-  enforceSolidCollisions(target, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ);
+  const isInsideWorkspace = (
+    target.x >= clampMinX && target.x <= clampMaxX &&
+    target.y >= clampMinY && target.y <= clampMaxY &&
+    target.z >= clampMinZ && target.z <= clampMaxZ
+  );
 
-  target.x = THREE.MathUtils.clamp(target.x, clampMinX, clampMaxX);
-  target.z = THREE.MathUtils.clamp(target.z, clampMinZ, clampMaxZ);
-  enforceWalkwayClearance();
+  if (isInsideWorkspace) {
+    const resistanceScale = Math.max(0, 1 - WORKSPACE_RESISTANCE_FACTOR);
+    const resistedDelta = target.clone().sub(previousPosition).multiplyScalar(resistanceScale);
+    const candidate = previousPosition.clone().add(resistedDelta);
 
-  target.y = THREE.MathUtils.clamp(target.y, workspaceBounds.min.y + halfHeight, workspaceBounds.max.y - halfHeight);
+    candidate.y = previousPosition.y + (target.y - previousPosition.y) * resistanceScale;
+
+    applyModuleMagnetism(candidate, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ);
+    enforceWalkwayClearance();
+    enforceSolidCollisions(candidate, module, halfX, halfZ, clampMinX, clampMaxX, clampMinZ, clampMaxZ);
+
+    target.copy(candidate);
+  }
 }
 
 function syncModuleState(mod) {
