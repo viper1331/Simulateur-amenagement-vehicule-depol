@@ -347,6 +347,30 @@ function detachModuleFromGroup(module) {
   }
 }
 
+function dissolveFusionGroupForModule(module) {
+  if (!module || !module.fusionGroupId) {
+    return false;
+  }
+  const groupId = module.fusionGroupId;
+  const members = getActiveFusionGroup(module);
+  if (!members || members.size < 2) {
+    detachModuleFromGroup(module);
+    return false;
+  }
+  const membersArray = [...members];
+  membersArray.forEach((member) => {
+    if (!member) return;
+    member.fusionGroupId = null;
+    if (state.fusionSelection) {
+      state.fusionSelection.delete(member.id);
+    }
+  });
+  if (state.fusionGroups) {
+    state.fusionGroups.delete(groupId);
+  }
+  return true;
+}
+
 function assignModulesToFusionGroup(modules) {
   if (!Array.isArray(modules) || modules.length < 2) {
     return null;
@@ -1611,7 +1635,8 @@ const orbitState = {
   azimuth: DEFAULT_ORBIT_AZIMUTH,
   polar: DEFAULT_ORBIT_POLAR,
   radius: DEFAULT_ORBIT_RADIUS,
-  target: new THREE.Vector3(0, DEFAULT_ORBIT_TARGET_Y, 0)
+  target: new THREE.Vector3(0, DEFAULT_ORBIT_TARGET_Y, 0),
+  pointerId: null
 };
 
 const ui = {};
@@ -2253,7 +2278,6 @@ function initPlanView() {
   planRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
   planRenderer.setClearColor(0x000000, 0);
   planRenderer.domElement.style.touchAction = 'none';
-  planRenderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
   planCamera = new THREE.OrthographicCamera(
     -PLAN_VIEW_DEFAULT_HALF_WIDTH,
     PLAN_VIEW_DEFAULT_HALF_WIDTH,
@@ -2370,7 +2394,17 @@ function initScene() {
   renderer.setPixelRatio(window.devicePixelRatio || 1);
   renderer.domElement.style.touchAction = 'none';
   document.getElementById('canvas-container').appendChild(renderer.domElement);
-  renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
+  renderer.domElement.addEventListener('contextmenu', () => {
+    if (orbitState.active && orbitState.pointerId !== null) {
+      try {
+        renderer.domElement.releasePointerCapture(orbitState.pointerId);
+      } catch (err) {
+        /* noop */
+      }
+    }
+    orbitState.active = false;
+    orbitState.pointerId = null;
+  });
 
   hemiLight = new THREE.HemisphereLight(0xddeeff, 0x202328, 0.6);
   scene.add(hemiLight);
@@ -2636,6 +2670,7 @@ function initUI() {
   ui.modulesSolidToggle = document.getElementById('modules-solid-toggle');
   ui.modulesMagnetToggle = document.getElementById('modules-magnet-toggle');
   ui.btnFuseElements = document.getElementById('btn-fuse-elements');
+  ui.btnUnfuseElements = document.getElementById('btn-unfuse-elements');
   ui.walkwayRange = document.getElementById('walkway-width');
   ui.walkwayValue = document.getElementById('walkway-width-value');
   ui.walkwayOffsetXRange = document.getElementById('walkway-offset-x');
@@ -3145,6 +3180,31 @@ function bindUIEvents() {
     ui.btnFuseElements.addEventListener('click', () => {
       fuseSelectedElements();
       ui.btnFuseElements.blur();
+    });
+  }
+
+  if (ui.btnUnfuseElements) {
+    ui.btnUnfuseElements.addEventListener('click', () => {
+      if (!state.selected) {
+        showModal('Information', 'Sélectionnez un module lié pour dissocier le groupe.');
+        return;
+      }
+      const hadGroup = Boolean(state.selected.fusionGroupId);
+      const success = dissolveFusionGroupForModule(state.selected);
+      updateModuleList();
+      updateSelectionDetails();
+      updateAnalysis();
+      requestPlanViewUpdate();
+      if (hadGroup) {
+        pushHistory();
+      }
+      ui.btnUnfuseElements.blur();
+      showModal(
+        success ? 'Séparation des éléments' : 'Information',
+        success
+          ? 'Les éléments liés ont été dissociés. Ils peuvent désormais être manipulés individuellement.'
+          : 'Le module sélectionné n’est pas lié à d’autres éléments.'
+      );
     });
   }
 
@@ -3818,6 +3878,7 @@ function updateSelectionDetails() {
     if (ui.detailLibraryLicenseRow) ui.detailLibraryLicenseRow.classList.add('hidden');
     if (ui.detailLibraryWebsiteRow) ui.detailLibraryWebsiteRow.classList.add('hidden');
     updateClipboardButtons();
+    updateFusionButtonState();
     return;
   }
   ui.detailName.textContent = mod.name;
@@ -3863,6 +3924,7 @@ function updateSelectionDetails() {
   }
 
   updateClipboardButtons();
+  updateFusionButtonState();
 }
 
 function getFusionSelectionModules() {
@@ -3875,19 +3937,30 @@ function getFusionSelectionModules() {
 }
 
 function updateFusionButtonState() {
-  if (!ui.btnFuseElements) return;
-  if (!ui.btnFuseElements.dataset.baseLabel) {
-    ui.btnFuseElements.dataset.baseLabel = ui.btnFuseElements.textContent || 'Fusionner les éléments sélectionnés';
+  if (ui.btnFuseElements) {
+    if (!ui.btnFuseElements.dataset.baseLabel) {
+      ui.btnFuseElements.dataset.baseLabel = ui.btnFuseElements.textContent || 'Fusionner les éléments sélectionnés';
+    }
+    const selectedModules = getFusionSelectionModules();
+    const count = selectedModules.length;
+    ui.btnFuseElements.disabled = count < 2;
+    ui.btnFuseElements.textContent = count > 1
+      ? `${ui.btnFuseElements.dataset.baseLabel} (${count})`
+      : ui.btnFuseElements.dataset.baseLabel;
+    ui.btnFuseElements.title = count > 1
+      ? 'Créer un module combiné à partir des éléments sélectionnés.'
+      : 'Sélectionnez au moins deux modules de type « Elements » pour activer la fusion.';
   }
-  const selectedModules = getFusionSelectionModules();
-  const count = selectedModules.length;
-  ui.btnFuseElements.disabled = count < 2;
-  ui.btnFuseElements.textContent = count > 1
-    ? `${ui.btnFuseElements.dataset.baseLabel} (${count})`
-    : ui.btnFuseElements.dataset.baseLabel;
-  ui.btnFuseElements.title = count > 1
-    ? 'Créer un module combiné à partir des éléments sélectionnés.'
-    : 'Sélectionnez au moins deux modules de type « Elements » pour activer la fusion.';
+
+  if (ui.btnUnfuseElements) {
+    const selectedModule = state.selected || null;
+    const activeGroup = selectedModule ? getActiveFusionGroup(selectedModule) : null;
+    const canUnfuse = Boolean(selectedModule && activeGroup && activeGroup.size >= 2);
+    ui.btnUnfuseElements.disabled = !canUnfuse;
+    ui.btnUnfuseElements.title = canUnfuse
+      ? 'Dissocier tous les éléments liés au module sélectionné.'
+      : 'Sélectionnez un module déjà lié pour activer la dissociation.';
+  }
 }
 
 function updateModuleList() {
@@ -3962,6 +4035,32 @@ function updateModuleList() {
 
     const actions = document.createElement('div');
     actions.className = 'module-list-actions';
+    if (mod.fusionGroupId) {
+      const unlinkBtn = document.createElement('button');
+      unlinkBtn.type = 'button';
+      unlinkBtn.className = 'ghost compact';
+      unlinkBtn.textContent = 'Dissocier';
+      unlinkBtn.title = 'Dissocier tous les éléments liés à ce module';
+      unlinkBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const hadGroup = Boolean(mod.fusionGroupId);
+        const success = dissolveFusionGroupForModule(mod);
+        updateModuleList();
+        updateSelectionDetails();
+        updateAnalysis();
+        requestPlanViewUpdate();
+        if (hadGroup) {
+          pushHistory();
+        }
+        showModal(
+          success ? 'Séparation des éléments' : 'Information',
+          success
+            ? 'Les éléments liés ont été dissociés. Ils peuvent désormais être manipulés individuellement.'
+            : 'Ce module n’est lié à aucun autre élément actif.'
+        );
+      });
+      actions.appendChild(unlinkBtn);
+    }
     const deleteBtn = document.createElement('button');
     deleteBtn.type = 'button';
     deleteBtn.className = 'ghost danger compact';
@@ -4164,6 +4263,7 @@ function onPointerDown(event) {
   if (event.button === 2 || event.ctrlKey) {
     orbitState.active = true;
     orbitState.pointer.set(event.clientX, event.clientY);
+    orbitState.pointerId = event.pointerId;
     renderer.domElement.setPointerCapture(event.pointerId);
     return;
   }
@@ -4310,11 +4410,20 @@ function onPointerMove(event) {
 function onPointerUp(event) {
   if (orbitState.active) {
     orbitState.active = false;
-    try {
-      renderer.domElement.releasePointerCapture(event.pointerId);
-    } catch (err) {
-      /* noop */
+    if (orbitState.pointerId !== null) {
+      try {
+        renderer.domElement.releasePointerCapture(orbitState.pointerId);
+      } catch (err) {
+        /* noop */
+      }
+    } else {
+      try {
+        renderer.domElement.releasePointerCapture(event.pointerId);
+      } catch (err) {
+        /* noop */
+      }
     }
+    orbitState.pointerId = null;
     resetFusionDragState();
     return;
   }
