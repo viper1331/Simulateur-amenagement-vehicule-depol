@@ -711,6 +711,85 @@ input[type="range"] {
   font-size: 0.75rem;
 }
 
+.plan-panel {
+  position: absolute;
+  bottom: 1rem;
+  left: 1rem;
+  width: min(420px, 45%);
+  min-width: 240px;
+  max-width: 520px;
+  height: min(320px, 45%);
+  min-height: 200px;
+  background: rgba(17, 21, 31, 0.9);
+  border: 1px solid rgba(62, 166, 255, 0.25);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  resize: both;
+  z-index: 6;
+  backdrop-filter: blur(6px);
+}
+
+.plan-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.8rem;
+  background: rgba(10, 15, 23, 0.92);
+  border-bottom: 1px solid rgba(62, 166, 255, 0.18);
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.plan-header-actions button {
+  margin: 0;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.plan-content {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: rgba(8, 11, 17, 0.92);
+}
+
+.plan-canvas-container {
+  position: relative;
+  flex: 1;
+}
+
+.plan-canvas-container canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.plan-detached-message {
+  display: none;
+  padding: 1rem 1.2rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.plan-panel.is-detached {
+  resize: none;
+  min-height: 0;
+  height: auto;
+}
+
+.plan-panel.is-detached .plan-canvas-container {
+  display: none;
+}
+
+.plan-panel.is-detached .plan-detached-message {
+  display: block;
+}
+
 #selection-details .detail {
   display: flex;
   justify-content: space-between;
