@@ -2947,6 +2947,27 @@ function setChassisOpacity(opacity) {
   }
 }
 
+function markWalkwayObject(object) {
+  if (!object) return;
+  if (!object.userData) {
+    object.userData = {};
+  }
+  object.userData.isWalkway = true;
+  object.userData.isSelectable = false;
+  object.children.forEach((child) => markWalkwayObject(child));
+}
+
+function isWalkwayObject(object) {
+  let current = object;
+  while (current) {
+    if (current.userData && current.userData.isWalkway) {
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
+}
+
 function createWalkwayMesh(width, length, visible) {
   const mat = new THREE.MeshBasicMaterial({
     color: 0x21c77a,
@@ -2964,6 +2985,7 @@ function createWalkwayMesh(width, length, visible) {
   // Le couloir ne doit pas intercepter les clics afin de faciliter la
   // sélection des modules situés en dessous.
   mesh.raycast = () => {};
+  markWalkwayObject(mesh);
   return mesh;
 }
 
@@ -4698,33 +4720,37 @@ function onPointerDown(event) {
     }
   }
   const intersects = intersectModules(event);
-  if (intersects.length > 0) {
-    const module = state.modules.find((mod) => mod.mesh === intersects[0].object || mod.mesh === intersects[0].object.parent);
+  let module = null;
+  for (const hit of intersects) {
+    module = findModuleFromObject(hit.object);
     if (module) {
-      selectModule(module);
-      if (state.mode === 'translate' || state.mode === 'rotate') {
-        prepareFusionDrag(module);
-        dragActive = true;
-        dragKind = state.mode === 'translate' ? 'module-translate' : 'module-rotate';
-        dragMode = 'horizontal';
-        if (state.mode === 'translate' && event.shiftKey) {
-          dragMode = 'vertical';
-        }
-        if (state.mode === 'translate' && dragMode === 'vertical') {
-          dragPlane.set(new THREE.Vector3(0, 0, 1), -module.mesh.position.z);
-        } else {
-          dragPlane.set(new THREE.Vector3(0, 1, 0), 0);
-        }
-        const point = getPlaneIntersection(event, dragPlane);
-        if (point) {
-          if (state.mode === 'translate' && dragMode === 'vertical') {
-            dragOffset.set(0, module.mesh.position.y - point.y, 0);
-          } else {
-            dragOffset.copy(module.mesh.position).sub(point);
-          }
-        }
-        renderer.domElement.setPointerCapture(event.pointerId);
+      break;
+    }
+  }
+  if (module) {
+    selectModule(module);
+    if (state.mode === 'translate' || state.mode === 'rotate') {
+      prepareFusionDrag(module);
+      dragActive = true;
+      dragKind = state.mode === 'translate' ? 'module-translate' : 'module-rotate';
+      dragMode = 'horizontal';
+      if (state.mode === 'translate' && event.shiftKey) {
+        dragMode = 'vertical';
       }
+      if (state.mode === 'translate' && dragMode === 'vertical') {
+        dragPlane.set(new THREE.Vector3(0, 0, 1), -module.mesh.position.z);
+      } else {
+        dragPlane.set(new THREE.Vector3(0, 1, 0), 0);
+      }
+      const point = getPlaneIntersection(event, dragPlane);
+      if (point) {
+        if (state.mode === 'translate' && dragMode === 'vertical') {
+          dragOffset.set(0, module.mesh.position.y - point.y, 0);
+        } else {
+          dragOffset.copy(module.mesh.position).sub(point);
+        }
+      }
+      renderer.domElement.setPointerCapture(event.pointerId);
     }
   } else {
     selectModule(null);
@@ -4932,13 +4958,29 @@ function resetOrbitToChassis() {
   updateCameraFromOrbit();
 }
 
+function findModuleFromObject(object) {
+  let current = object;
+  while (current) {
+    if (isWalkwayObject(current)) {
+      return null;
+    }
+    const module = state.modules.find((mod) => mod.mesh === current);
+    if (module) {
+      return module;
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
 function intersectModules(event) {
   const rect = renderer.domElement.getBoundingClientRect();
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
   const meshes = state.modules.map((mod) => mod.mesh);
-  return raycaster.intersectObjects(meshes, true);
+  const hits = raycaster.intersectObjects(meshes, true);
+  return hits.filter((hit) => !isWalkwayObject(hit.object));
 }
 
 function moduleFootprintHalfExtents(mod) {
