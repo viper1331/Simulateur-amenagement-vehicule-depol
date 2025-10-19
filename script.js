@@ -255,6 +255,17 @@ const moduleLibraries = new Map([
 const MODULE_SHAPES = ['box', 'cylinder'];
 const DEFAULT_MAGNET_DISTANCE = 0.15;
 
+function isElementType(value) {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  return value.toString().toLowerCase().includes('element');
+}
+
+function isElementModule(module) {
+  return Boolean(module && isElementType(module.type));
+}
+
 function slugify(value) {
   if (value === null || value === undefined) {
     return '';
@@ -1254,6 +1265,7 @@ const state = {
   modules: [],
   selected: null,
   clipboard: null,
+  fusionSelection: new Set(),
   mode: 'translate',
   compareReference: null,
   lastAnalysis: null
@@ -2164,6 +2176,9 @@ function initUI() {
   ui.btnImportModuleLibrary = document.getElementById('btn-import-module-library');
   ui.moduleLibraryInput = document.getElementById('module-library-input');
   ui.moduleLibraryList = document.getElementById('module-library-list');
+  ui.modulesSolidToggle = document.getElementById('modules-solid-toggle');
+  ui.modulesMagnetToggle = document.getElementById('modules-magnet-toggle');
+  ui.btnFuseElements = document.getElementById('btn-fuse-elements');
   ui.walkwayRange = document.getElementById('walkway-width');
   ui.walkwayValue = document.getElementById('walkway-width-value');
   ui.walkwayOffsetXRange = document.getElementById('walkway-offset-x');
@@ -2661,6 +2676,13 @@ function bindUIEvents() {
   if (ui.moduleFluidToggle) {
     ui.moduleFluidToggle.addEventListener('change', () => {
       updateModuleFormFluidState(ui.moduleFluidToggle.checked);
+    });
+  }
+
+  if (ui.btnFuseElements) {
+    ui.btnFuseElements.addEventListener('click', () => {
+      fuseSelectedElements();
+      ui.btnFuseElements.blur();
     });
   }
 
@@ -3316,20 +3338,88 @@ function updateSelectionDetails() {
   updateClipboardButtons();
 }
 
+function getFusionSelectionModules() {
+  if (!state.fusionSelection) {
+    state.fusionSelection = new Set();
+  }
+  return [...state.fusionSelection]
+    .map((id) => state.modules.find((mod) => mod.id === id))
+    .filter((mod) => isElementModule(mod));
+}
+
+function updateFusionButtonState() {
+  if (!ui.btnFuseElements) return;
+  if (!ui.btnFuseElements.dataset.baseLabel) {
+    ui.btnFuseElements.dataset.baseLabel = ui.btnFuseElements.textContent || 'Fusionner les éléments sélectionnés';
+  }
+  const selectedModules = getFusionSelectionModules();
+  const count = selectedModules.length;
+  ui.btnFuseElements.disabled = count < 2;
+  ui.btnFuseElements.textContent = count > 1
+    ? `${ui.btnFuseElements.dataset.baseLabel} (${count})`
+    : ui.btnFuseElements.dataset.baseLabel;
+  ui.btnFuseElements.title = count > 1
+    ? 'Créer un module combiné à partir des éléments sélectionnés.'
+    : 'Sélectionnez au moins deux modules de type « Elements » pour activer la fusion.';
+}
+
 function updateModuleList() {
   if (!ui.moduleList) return;
+  if (!state.fusionSelection) {
+    state.fusionSelection = new Set();
+  }
+
+  const validFusionIds = new Set();
+  state.modules.forEach((mod) => {
+    if (isElementModule(mod)) {
+      validFusionIds.add(mod.id);
+    }
+  });
+  [...state.fusionSelection].forEach((id) => {
+    if (!validFusionIds.has(id)) {
+      state.fusionSelection.delete(id);
+    }
+  });
+
   ui.moduleList.innerHTML = '';
   if (state.modules.length === 0) {
     const emptyItem = document.createElement('li');
     emptyItem.className = 'module-list-empty';
     emptyItem.textContent = "Aucun module n'est positionné.";
     ui.moduleList.appendChild(emptyItem);
+    updateFusionButtonState();
     return;
   }
   state.modules.forEach((mod) => {
     const li = document.createElement('li');
     if (state.selected && state.selected.id === mod.id) {
       li.classList.add('selected');
+    }
+    if (isElementModule(mod)) {
+      li.classList.add('supports-fusion');
+      const selector = document.createElement('label');
+      selector.className = 'module-list-selector';
+      selector.title = 'Sélectionner cet élément pour la fusion';
+      selector.addEventListener('click', (event) => {
+        event.stopPropagation();
+      });
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = state.fusionSelection.has(mod.id);
+      checkbox.setAttribute('aria-label', `Sélectionner ${mod.name} pour la fusion`);
+      checkbox.addEventListener('click', (event) => {
+        event.stopPropagation();
+      });
+      checkbox.addEventListener('change', (event) => {
+        if (event.target.checked) {
+          state.fusionSelection.add(mod.id);
+        } else {
+          state.fusionSelection.delete(mod.id);
+        }
+        updateFusionButtonState();
+      });
+      selector.appendChild(checkbox);
+      li.appendChild(selector);
     }
     const name = document.createElement('span');
     name.className = 'module-list-name';
@@ -3355,6 +3445,93 @@ function updateModuleList() {
     li.addEventListener('click', () => selectModule(mod));
     ui.moduleList.appendChild(li);
   });
+  updateFusionButtonState();
+}
+
+function fuseSelectedElements() {
+  const modules = getFusionSelectionModules();
+  if (modules.length < 2) {
+    showModal('Information', 'Sélectionnez au moins deux modules de type « Elements » à fusionner.');
+    return;
+  }
+
+  const fusedBox = new THREE.Box3();
+  modules.forEach((mod, index) => {
+    const box = new THREE.Box3().setFromObject(mod.mesh);
+    if (index === 0) {
+      fusedBox.copy(box);
+    } else {
+      fusedBox.union(box);
+    }
+  });
+
+  const fusedSize = new THREE.Vector3();
+  fusedBox.getSize(fusedSize);
+  if (!Number.isFinite(fusedSize.x) || !Number.isFinite(fusedSize.y) || !Number.isFinite(fusedSize.z)) {
+    showModal('Erreur', 'Impossible de déterminer les dimensions du module fusionné.');
+    return;
+  }
+
+  const safeSize = {
+    x: Math.max(fusedSize.x, 0.05),
+    y: Math.max(fusedSize.y, 0.05),
+    z: Math.max(fusedSize.z, 0.05)
+  };
+
+  const massEmpty = modules.reduce((sum, mod) => sum + (Number(mod.massEmpty) || 0), 0);
+  const totalFluidVolume = modules.reduce(
+    (sum, mod) => sum + (mod.containsFluid ? Number(mod.fluidVolume) || 0 : 0),
+    0
+  );
+  const filledVolume = modules.reduce(
+    (sum, mod) => sum + (mod.containsFluid ? (Number(mod.fluidVolume) || 0) * ((Number(mod.fill) || 0) / 100) : 0),
+    0
+  );
+  const densityAccumulator = modules.reduce(
+    (sum, mod) => sum + (mod.containsFluid ? (Number(mod.fluidVolume) || 0) * (Number(mod.density) || 0) : 0),
+    0
+  );
+
+  const containsFluid = totalFluidVolume > 0;
+  const defaultFill = containsFluid && totalFluidVolume > 0
+    ? Math.min(100, Math.max(0, (filledVolume / totalFluidVolume) * 100))
+    : 0;
+  const density = containsFluid && totalFluidVolume > 0
+    ? Math.max(1, densityAccumulator / totalFluidVolume)
+    : 0;
+
+  const fusedDefinition = {
+    name: `Fusion éléments (${modules.length})`,
+    type: 'Fusion',
+    shape: 'box',
+    size: safeSize,
+    massEmpty,
+    containsFluid,
+    fluidVolume: containsFluid ? totalFluidVolume : 0,
+    defaultFill: containsFluid ? defaultFill : 0,
+    density: containsFluid ? density : 0,
+    color: modules[0]?.color ?? 0x2c7ef4
+  };
+
+  if (!ui.moduleForm || !ui.btnAddModule) {
+    showModal('Information', 'Le formulaire de création de module est indisponible.');
+    return;
+  }
+
+  ui.moduleForm.reset();
+  resetModuleFormState();
+  setFormCollapsed(ui.btnAddModule, ui.moduleForm, false);
+  populateModuleForm(fusedDefinition);
+  ui.moduleForm.dataset.mode = 'create';
+  delete ui.moduleForm.dataset.targetId;
+  const nameInput = ui.moduleForm.querySelector('#module-name');
+  if (nameInput) {
+    nameInput.focus();
+    nameInput.select();
+  }
+
+  state.fusionSelection.clear();
+  updateModuleList();
 }
 
 function createModuleClipboardPayload(mod) {
@@ -3968,6 +4145,9 @@ function removeModule(mod, options = {}) {
     mod.mesh.geometry.dispose();
     mod.mesh.material.dispose();
     state.modules.splice(index, 1);
+    if (state.fusionSelection) {
+      state.fusionSelection.delete(mod.id);
+    }
     if (state.selected && state.selected.id === mod.id) {
       state.selected = null;
       if (!silent) {
@@ -3981,6 +4161,7 @@ function removeModule(mod, options = {}) {
     if (shouldPushHistory) {
       pushHistory();
     }
+    updateFusionButtonState();
   }
 }
 
@@ -4116,6 +4297,9 @@ function resetScene() {
   });
   state.modules = [];
   state.selected = null;
+  if (state.fusionSelection) {
+    state.fusionSelection.clear();
+  }
   updateModuleList();
   updateSelectionDetails();
   updateAnalysis();
@@ -4221,6 +4405,9 @@ function restoreState(data) {
   });
   state.modules = [];
   state.selected = null;
+  if (state.fusionSelection) {
+    state.fusionSelection.clear();
+  }
 
   (data.modules || []).forEach((item) => {
     if (!item) return;
