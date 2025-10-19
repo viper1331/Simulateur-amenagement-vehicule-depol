@@ -253,7 +253,8 @@ const moduleLibraries = new Map([
   [CUSTOM_MODULE_LIBRARY.id, { ...CUSTOM_MODULE_LIBRARY }]
 ]);
 
-const MODULE_SHAPES = ['box', 'cylinder'];
+const MODULE_SHAPES = ['box', 'cylinder', 'composite'];
+const COMPOSITE_DEFAULT_COLOR = 0x5a6ba0;
 const DEFAULT_MAGNET_DISTANCE = 0.15;
 
 function isElementType(value) {
@@ -427,6 +428,126 @@ function assignModulesToFusionGroup(modules) {
   return groupId;
 }
 
+function createCompositeModuleDefinition(modules, { name } = {}) {
+  const validModules = Array.isArray(modules)
+    ? modules.filter((mod) => mod && mod.mesh)
+    : [];
+  if (validModules.length < 2) {
+    throw new Error('Au moins deux modules valides sont requis pour créer un assemblage.');
+  }
+
+  const combinedBox = new THREE.Box3();
+  validModules.forEach((mod) => {
+    const box = new THREE.Box3().setFromObject(mod.mesh);
+    combinedBox.union(box);
+  });
+
+  if (!Number.isFinite(combinedBox.min.x) || !Number.isFinite(combinedBox.max.x)) {
+    throw new Error('Impossible de calculer les dimensions du module combiné.');
+  }
+
+  const sizeVector = combinedBox.getSize(new THREE.Vector3());
+  const safeSize = {
+    x: Math.max(sizeVector.x, 0.2),
+    y: Math.max(sizeVector.y, 0.2),
+    z: Math.max(sizeVector.z, 0.2)
+  };
+
+  const origin = new THREE.Vector3(
+    (combinedBox.min.x + combinedBox.max.x) / 2,
+    combinedBox.min.y,
+    (combinedBox.min.z + combinedBox.max.z) / 2
+  );
+
+  let totalMass = 0;
+  let totalFluidVolume = 0;
+  let densityWeightedSum = 0;
+  let fillWeightedSum = 0;
+
+  const components = validModules.map((mod, index) => {
+    const componentBox = new THREE.Box3().setFromObject(mod.mesh);
+    const componentSizeVec = componentBox.getSize(new THREE.Vector3());
+    const componentSize = {
+      x: Number.isFinite(mod.size?.x) ? mod.size.x : componentSizeVec.x,
+      y: Number.isFinite(mod.size?.y) ? mod.size.y : componentSizeVec.y,
+      z: Number.isFinite(mod.size?.z) ? mod.size.z : componentSizeVec.z
+    };
+    const bottomCenter = new THREE.Vector3(
+      mod.mesh.position.x,
+      mod.mesh.position.y - (componentSize.y || 0) / 2,
+      mod.mesh.position.z
+    );
+    const offset = bottomCenter.sub(origin);
+    const componentFluidVolume = Number(mod.fluidVolume) || 0;
+    const componentFill = Number(mod.fill) || 0;
+    const componentDensity = Number(mod.density) || 0;
+
+    totalMass += Number(mod.massEmpty) || 0;
+    if (mod.containsFluid) {
+      totalFluidVolume += componentFluidVolume;
+      densityWeightedSum += componentDensity * componentFluidVolume;
+      fillWeightedSum += componentFluidVolume * componentFill;
+    }
+
+    return {
+      sourceId: mod.definitionId || null,
+      type: mod.type || 'Elements',
+      name: mod.name || `Élément ${index + 1}`,
+      shape: mod.shape || 'box',
+      size: componentSize,
+      color: mod.color,
+      massEmpty: Number(mod.massEmpty) || 0,
+      fluidVolume: componentFluidVolume,
+      density: componentDensity,
+      containsFluid: Boolean(mod.containsFluid),
+      fill: componentFill,
+      offset: { x: offset.x, y: offset.y, z: offset.z },
+      rotation: {
+        x: Number(mod.mesh.rotation.x) || 0,
+        y: Number(mod.mesh.rotation.y) || 0,
+        z: Number(mod.mesh.rotation.z) || 0
+      }
+    };
+  });
+
+  const containsFluid = totalFluidVolume > 0;
+  const averagedDensity = containsFluid && totalFluidVolume > 0
+    ? densityWeightedSum / totalFluidVolume
+    : 0;
+  const averagedFill = containsFluid && totalFluidVolume > 0
+    ? Math.max(0, Math.min(100, fillWeightedSum / totalFluidVolume))
+    : 0;
+
+  const baseName = (name && name.toString().trim()) || `Module fusionné (${validModules.length})`;
+  const sanitizedName = baseName.trim() || 'Module fusionné';
+  const idBase = slugify(sanitizedName) || slugify(baseName) || `fusion-${Date.now()}`;
+  const id = ensureUniqueModuleId(idBase);
+  const initialPosition = new THREE.Vector3(origin.x, origin.y + safeSize.y / 2, origin.z);
+
+  const definition = {
+    id,
+    type: 'Elements combinés',
+    name: sanitizedName,
+    shape: 'composite',
+    size: safeSize,
+    color: validModules[0]?.color ?? COMPOSITE_DEFAULT_COLOR,
+    massEmpty: totalMass,
+    fluidVolume: containsFluid ? totalFluidVolume : 0,
+    defaultFill: containsFluid ? Math.round(averagedFill) : 0,
+    density: containsFluid ? averagedDensity : 0,
+    containsFluid,
+    components,
+    libraryId: CUSTOM_MODULE_LIBRARY.id,
+    libraryName: CUSTOM_MODULE_LIBRARY.name,
+    librarySource: CUSTOM_MODULE_LIBRARY.source,
+    libraryLicense: CUSTOM_MODULE_LIBRARY.license,
+    libraryWebsite: CUSTOM_MODULE_LIBRARY.website,
+    isCustom: true
+  };
+
+  return { definition, initialPosition };
+}
+
 function slugify(value) {
   if (value === null || value === undefined) {
     return '';
@@ -557,6 +678,9 @@ function createModuleGeometry(shape, size) {
 
 function updateMeshGeometryFromDefinition(mesh, definition) {
   if (!mesh) return;
+  if (Array.isArray(definition.components) && definition.components.length > 0) {
+    return;
+  }
   const shape = normalizeModuleShape(definition.shape);
   const geometry = createModuleGeometry(shape, definition.size);
   if (mesh.geometry) {
@@ -576,6 +700,64 @@ function updateMeshGeometryFromDefinition(mesh, definition) {
 
 function createModuleMesh(definition, { size, color } = {}) {
   const resolvedSize = size ? { ...definition.size, ...size } : definition.size;
+  const hasComponents = Array.isArray(definition.components) && definition.components.length > 0;
+
+  if (hasComponents) {
+    const safeSize = {
+      x: Number(resolvedSize?.x) || 0.2,
+      y: Number(resolvedSize?.y) || 0.2,
+      z: Number(resolvedSize?.z) || 0.2
+    };
+    const group = new THREE.Group();
+    group.position.set(0, safeSize.y / 2, 0);
+
+    definition.components.forEach((component) => {
+      if (!component) return;
+      const componentSize = component.size
+        ? { x: Number(component.size.x) || 0.2, y: Number(component.size.y) || 0.2, z: Number(component.size.z) || 0.2 }
+        : { x: 0.2, y: 0.2, z: 0.2 };
+      const componentShape = normalizeModuleShape(component.shape);
+      const geometry = createModuleGeometry(componentShape, componentSize);
+      const componentColor = component.color !== undefined
+        ? component.color
+        : (color !== undefined ? color : (definition.color !== undefined ? definition.color : COMPOSITE_DEFAULT_COLOR));
+      const material = new THREE.MeshStandardMaterial({
+        color: componentColor,
+        metalness: (component.type || '').toString().toLowerCase().includes('tank') ? 0.6 : 0.2,
+        roughness: 0.45
+      });
+      const childMesh = new THREE.Mesh(geometry, material);
+      childMesh.castShadow = true;
+      childMesh.receiveShadow = true;
+      const offset = component.offset || component.position || { x: 0, y: 0, z: 0 };
+      const offsetX = Number(offset.x) || 0;
+      const offsetY = Number(offset.y) || 0;
+      const offsetZ = Number(offset.z) || 0;
+      const halfHeight = componentSize.y / 2;
+      childMesh.position.set(offsetX, offsetY + halfHeight, offsetZ);
+      if (component.rotation) {
+        childMesh.rotation.set(
+          Number(component.rotation.x) || 0,
+          Number(component.rotation.y) || 0,
+          Number(component.rotation.z) || 0
+        );
+      }
+      const edges = new THREE.LineSegments(
+        new THREE.EdgesGeometry(geometry),
+        new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 })
+      );
+      childMesh.add(edges);
+      group.add(childMesh);
+    });
+
+    return {
+      mesh: group,
+      color: color !== undefined ? color : (definition.color !== undefined ? definition.color : COMPOSITE_DEFAULT_COLOR),
+      shape: 'composite',
+      size: { ...safeSize }
+    };
+  }
+
   const shape = normalizeModuleShape(definition.shape);
   const geometry = createModuleGeometry(shape, resolvedSize);
   const baseColor = color !== undefined
@@ -1000,6 +1182,52 @@ function sanitizeModuleDefinition(definition, libraryMeta = null) {
       ? definition.isCustom
       : resolvedLibraryId === CUSTOM_MODULE_LIBRARY.id
   };
+  if (Array.isArray(definition.components) && definition.components.length > 0) {
+    const sanitizedComponents = definition.components
+      .map((component, index) => {
+        if (!component) return null;
+        const componentSize = component.size || {};
+        const normalizedComponentShape = normalizeModuleShape(component.shape);
+        const sanitizedComponentShape = normalizedComponentShape === 'composite'
+          ? 'box'
+          : normalizedComponentShape;
+        const size = {
+          x: Number(componentSize.x) || sizeX,
+          y: Number(componentSize.y) || sizeY,
+          z: Number(componentSize.z) || sizeZ
+        };
+        const offset = component.offset || component.position || {};
+        const rotation = component.rotation || {};
+        return {
+          sourceId: component.sourceId || component.definitionId || null,
+          type: component.type || sanitized.type,
+          name: component.name || `${sanitized.name} - Élément ${index + 1}`,
+          shape: sanitizedComponentShape,
+          size,
+          color: Number.isFinite(component.color) ? component.color : sanitized.color,
+          massEmpty: Number(component.massEmpty) || 0,
+          fluidVolume: Number(component.fluidVolume) || 0,
+          density: Number(component.density) || 0,
+          containsFluid: Boolean(component.containsFluid),
+          fill: Number(component.fill) || 0,
+          offset: {
+            x: Number(offset.x) || 0,
+            y: Number(offset.y) || 0,
+            z: Number(offset.z) || 0
+          },
+          rotation: {
+            x: Number(rotation.x) || 0,
+            y: Number(rotation.y) || 0,
+            z: Number(rotation.z) || 0
+          }
+        };
+      })
+      .filter(Boolean);
+    if (sanitizedComponents.length > 0) {
+      sanitized.shape = 'composite';
+      sanitized.components = sanitizedComponents;
+    }
+  }
   return sanitized;
 }
 
@@ -1570,6 +1798,9 @@ function formatModuleShape(shape) {
   if (normalized === 'cylinder') {
     return 'Cylindre';
   }
+  if (normalized === 'composite') {
+    return 'Assemblage';
+  }
   return 'Parallélépipède';
 }
 
@@ -1601,6 +1832,26 @@ function disposeModuleLabel(module) {
     module.mesh.remove(module.labelSprite);
   }
   module.labelSprite = null;
+}
+
+function disposeModuleMesh(mesh) {
+  if (!mesh) return;
+  [...mesh.children].forEach((child) => {
+    disposeModuleMesh(child);
+  });
+  if (mesh.geometry && typeof mesh.geometry.dispose === 'function') {
+    mesh.geometry.dispose();
+  }
+  const { material } = mesh;
+  if (Array.isArray(material)) {
+    material.forEach((mat) => {
+      if (mat && typeof mat.dispose === 'function') {
+        mat.dispose();
+      }
+    });
+  } else if (material && typeof material.dispose === 'function') {
+    material.dispose();
+  }
 }
 
 function updateModuleLabel(module) {
@@ -3876,11 +4127,11 @@ function refreshChassisInfo() {
   }
 }
 
-function addModuleInstance(moduleId) {
+function addModuleInstance(moduleId, options = {}) {
   const definition = moduleCatalog.find((m) => m.id === moduleId);
-  if (!definition) return;
+  if (!definition) return null;
 
-  const { mesh, color } = createModuleMesh(definition);
+  const { mesh, color, shape } = createModuleMesh(definition);
 
   const containsFluid = Boolean(definition.containsFluid);
   const initialFill = containsFluid ? Math.min(100, Math.max(0, definition.defaultFill ?? 0)) : 0;
@@ -3890,7 +4141,7 @@ function addModuleInstance(moduleId) {
     type: definition.type,
     name: definition.name,
     mesh,
-    shape: normalizeModuleShape(definition.shape),
+    shape: shape || normalizeModuleShape(definition.shape),
     fill: initialFill,
     massEmpty: definition.massEmpty,
     fluidVolume: containsFluid ? definition.fluidVolume : 0,
@@ -3905,7 +4156,15 @@ function addModuleInstance(moduleId) {
     libraryLicense: definition.libraryLicense,
     libraryWebsite: definition.libraryWebsite,
     fusionGroupId: null,
-    labelSprite: null
+    labelSprite: null,
+    components: Array.isArray(definition.components)
+      ? definition.components.map((component) => ({
+          ...component,
+          size: component?.size ? { ...component.size } : null,
+          offset: component?.offset ? { ...component.offset } : { x: 0, y: 0, z: 0 },
+          rotation: component?.rotation ? { ...component.rotation } : { x: 0, y: 0, z: 0 }
+        }))
+      : null
   };
 
   scene.add(mesh);
@@ -3914,10 +4173,20 @@ function addModuleInstance(moduleId) {
   clampToBounds(mesh.position, instance);
   syncModuleState(instance);
   updateModuleLabel(instance);
-  selectModule(instance);
+
+  const { skipHistory = false, autoSelect = true } = options;
+  if (autoSelect) {
+    selectModule(instance);
+  } else {
+    updateModuleList();
+    updateSelectionDetails();
+  }
   updateAnalysis();
   requestPlanViewUpdate();
-  pushHistory();
+  if (!skipHistory) {
+    pushHistory();
+  }
+  return instance;
 }
 
 function selectModule(instance) {
@@ -4176,21 +4445,52 @@ function fuseSelectedElements() {
     showModal('Information', 'Sélectionnez au moins deux modules de type « Elements » à fusionner.');
     return;
   }
-  const groupId = assignModulesToFusionGroup(modules);
-  if (!groupId) {
-    showModal('Information', 'Aucun lien n’a été créé. Vérifiez votre sélection.');
-    return;
+  const defaultName = `Assemblage de ${modules.length} éléments`;
+  let requestedName = defaultName;
+  if (typeof window !== 'undefined' && typeof window.prompt === 'function') {
+    const promptValue = window.prompt('Nom du nouveau module combiné', defaultName);
+    if (promptValue === null) {
+      return;
+    }
+    if (promptValue.trim()) {
+      requestedName = promptValue.trim();
+    }
   }
 
-  state.fusionSelection.clear();
-  updateModuleList();
-  updateSelectionDetails();
-  updateAnalysis();
-  pushHistory();
-  showModal(
-    'Fusion des éléments',
-    'Les éléments sélectionnés sont désormais liés. Déplacez ou faites pivoter l’un d’eux pour déplacer tout le groupe.'
-  );
+  try {
+    const composite = createCompositeModuleDefinition(modules, { name: requestedName });
+    registerModuleLibraryMeta(CUSTOM_MODULE_LIBRARY);
+    const newDefinition = addModuleDefinition(composite.definition, CUSTOM_MODULE_LIBRARY);
+
+    modules.forEach((mod) => {
+      removeModule(mod, { pushHistory: false, silent: true });
+    });
+
+    const newInstance = addModuleInstance(newDefinition.id, { skipHistory: true });
+    if (newInstance) {
+      newInstance.mesh.position.copy(composite.initialPosition);
+      clampToBounds(newInstance.mesh.position, newInstance);
+      syncModuleState(newInstance);
+    }
+
+    if (state.fusionSelection) {
+      state.fusionSelection.clear();
+    }
+
+    updateModuleList();
+    updateSelectionDetails();
+    updateAnalysis();
+    requestPlanViewUpdate();
+    pushHistory();
+
+    showModal(
+      'Module combiné créé',
+      `Le module « ${composite.definition.name} » a été ajouté à la bibliothèque personnalisée et positionné dans la scène.`
+    );
+  } catch (error) {
+    console.error(error);
+    showModal('Erreur', error.message || 'La création du module combiné a échoué.');
+  }
 }
 
 function createModuleClipboardPayload(mod) {
@@ -4213,6 +4513,14 @@ function createModuleClipboardPayload(mod) {
     libraryLicense: mod.libraryLicense,
     libraryWebsite: mod.libraryWebsite,
     isCustom: mod.isCustom,
+    components: Array.isArray(mod.components)
+      ? mod.components.map((component) => ({
+          ...component,
+          size: component?.size ? { ...component.size } : null,
+          offset: component?.offset ? { ...component.offset } : { x: 0, y: 0, z: 0 },
+          rotation: component?.rotation ? { ...component.rotation } : { x: 0, y: 0, z: 0 }
+        }))
+      : null,
     position: mod.mesh.position.toArray(),
     rotationY: mod.mesh.rotation.y
   };
@@ -4269,7 +4577,8 @@ function pasteModuleFromClipboard() {
     librarySource: payload.librarySource,
     libraryLicense: payload.libraryLicense,
     libraryWebsite: payload.libraryWebsite,
-    isCustom: payload.isCustom
+    isCustom: payload.isCustom,
+    components: Array.isArray(payload.components) ? payload.components : []
   };
 
   const resolvedShape = normalizeModuleShape(payload.shape || definition.shape);
@@ -4278,11 +4587,28 @@ function pasteModuleFromClipboard() {
     return false;
   }
 
-  const { mesh } = createModuleMesh({
+  const resolvedComponents = Array.isArray(payload.components)
+    ? payload.components.map((component) => ({
+        ...component,
+        size: component?.size ? { ...component.size } : null,
+        offset: component?.offset ? { ...component.offset } : { x: 0, y: 0, z: 0 },
+        rotation: component?.rotation ? { ...component.rotation } : { x: 0, y: 0, z: 0 }
+      }))
+    : (Array.isArray(definition.components)
+        ? definition.components.map((component) => ({
+            ...component,
+            size: component?.size ? { ...component.size } : null,
+            offset: component?.offset ? { ...component.offset } : { x: 0, y: 0, z: 0 },
+            rotation: component?.rotation ? { ...component.rotation } : { x: 0, y: 0, z: 0 }
+          }))
+        : null);
+
+  const { mesh, shape } = createModuleMesh({
     ...definition,
     shape: resolvedShape,
     size: resolvedSize,
-    color: payload.color !== undefined ? payload.color : definition.color
+    color: payload.color !== undefined ? payload.color : definition.color,
+    components: resolvedComponents || undefined
   });
 
   const instancePosition = payload.position ? [...payload.position] : [0, resolvedSize.y / 2, 0];
@@ -4299,7 +4625,7 @@ function pasteModuleFromClipboard() {
     type: payload.type || definition.type,
     name: payload.name || definition.name,
     mesh,
-    shape: resolvedShape,
+    shape: shape || resolvedShape,
     fill: containsFluid ? Math.min(100, Math.max(0, payload.fill ?? definition.defaultFill ?? 0)) : 0,
     massEmpty: payload.massEmpty ?? definition.massEmpty,
     fluidVolume: containsFluid ? (payload.fluidVolume ?? definition.fluidVolume ?? 0) : 0,
@@ -4314,7 +4640,8 @@ function pasteModuleFromClipboard() {
     libraryLicense: payload.libraryLicense ?? definition.libraryLicense,
     libraryWebsite: payload.libraryWebsite ?? definition.libraryWebsite,
     fusionGroupId: null,
-    labelSprite: null
+    labelSprite: null,
+    components: resolvedComponents
   };
 
   scene.add(mesh);
@@ -4325,6 +4652,7 @@ function pasteModuleFromClipboard() {
   updateModuleLabel(instance);
   selectModule(instance);
   updateAnalysis();
+  requestPlanViewUpdate();
   pushHistory();
   return true;
 }
@@ -4924,8 +5252,7 @@ function removeModule(mod, options = {}) {
       }
     });
     scene.remove(mod.mesh);
-    mod.mesh.geometry.dispose();
-    mod.mesh.material.dispose();
+    disposeModuleMesh(mod.mesh);
     detachModuleFromGroup(mod);
     state.modules.splice(index, 1);
     if (state.fusionSelection) {
@@ -5076,8 +5403,7 @@ function resetScene() {
   state.modules.forEach((mod) => {
     disposeModuleLabel(mod);
     scene.remove(mod.mesh);
-    mod.mesh.geometry.dispose();
-    mod.mesh.material.dispose();
+    disposeModuleMesh(mod.mesh);
   });
   state.modules = [];
   state.selected = null;
@@ -5124,6 +5450,14 @@ function serializeState() {
       librarySource: mod.librarySource,
       libraryLicense: mod.libraryLicense,
       libraryWebsite: mod.libraryWebsite,
+      components: Array.isArray(mod.components)
+        ? mod.components.map((component) => ({
+            ...component,
+            size: component?.size ? { ...component.size } : null,
+            offset: component?.offset ? { ...component.offset } : { x: 0, y: 0, z: 0 },
+            rotation: component?.rotation ? { ...component.rotation } : { x: 0, y: 0, z: 0 }
+          }))
+        : undefined,
       isCustom: mod.isCustom,
       fusionGroupId: mod.fusionGroupId || null,
       position: mod.mesh.position.toArray(),
@@ -5186,8 +5520,7 @@ function restoreState(data) {
   state.modules.forEach((mod) => {
     disposeModuleLabel(mod);
     scene.remove(mod.mesh);
-    mod.mesh.geometry.dispose();
-    mod.mesh.material.dispose();
+    disposeModuleMesh(mod.mesh);
   });
   state.modules = [];
   state.selected = null;
@@ -5235,7 +5568,8 @@ function restoreState(data) {
         librarySource: item.librarySource,
         libraryLicense: item.libraryLicense,
         libraryWebsite: item.libraryWebsite,
-        isCustom: item.isCustom !== undefined ? item.isCustom : true
+        isCustom: item.isCustom !== undefined ? item.isCustom : true,
+        components: Array.isArray(item.components) ? item.components : []
       }, libraryMeta);
     }
     const size = item.size || definition.size;
@@ -5243,11 +5577,27 @@ function restoreState(data) {
     const baseColor = item.color !== undefined ? item.color : (definition.color !== undefined ? definition.color : 0x777777);
     const resolvedShape = normalizeModuleShape(item.shape || definition.shape);
     const resolvedSize = { ...definition.size, ...size };
-    const { mesh } = createModuleMesh({
+    const resolvedComponents = Array.isArray(item.components)
+      ? item.components.map((component) => ({
+          ...component,
+          size: component?.size ? { ...component.size } : null,
+          offset: component?.offset ? { ...component.offset } : { x: 0, y: 0, z: 0 },
+          rotation: component?.rotation ? { ...component.rotation } : { x: 0, y: 0, z: 0 }
+        }))
+      : (Array.isArray(definition.components)
+          ? definition.components.map((component) => ({
+              ...component,
+              size: component?.size ? { ...component.size } : null,
+              offset: component?.offset ? { ...component.offset } : { x: 0, y: 0, z: 0 },
+              rotation: component?.rotation ? { ...component.rotation } : { x: 0, y: 0, z: 0 }
+            }))
+          : null);
+    const { mesh, shape } = createModuleMesh({
       ...definition,
       shape: resolvedShape,
       size: resolvedSize,
-      color: baseColor
+      color: baseColor,
+      components: resolvedComponents || undefined
     });
     const positionArray = item.position && item.position.length === 3 ? item.position : [0, size.y / 2, 0];
     mesh.position.fromArray(positionArray);
@@ -5274,7 +5624,7 @@ function restoreState(data) {
       type: item.type || definition.type,
       name: item.name || definition.name,
       mesh,
-      shape: resolvedShape,
+      shape: shape || resolvedShape,
       fill: instanceFill,
       massEmpty: item.massEmpty ?? definition.massEmpty,
       fluidVolume: instanceFluidVolume,
@@ -5289,7 +5639,8 @@ function restoreState(data) {
       libraryLicense: definition.libraryLicense,
       libraryWebsite: definition.libraryWebsite,
       fusionGroupId: item.fusionGroupId ?? null,
-      labelSprite: null
+      labelSprite: null,
+      components: resolvedComponents
     };
     syncModuleState(instance);
     scene.add(mesh);
