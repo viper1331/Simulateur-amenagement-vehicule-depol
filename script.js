@@ -574,6 +574,83 @@ function createModuleMesh(definition, { size, color } = {}) {
   return { mesh, color: baseColor, shape, size: { ...resolvedSize } };
 }
 
+const MODULE_COLLIDER_FLAG = 'isModuleCollider';
+const noopRaycast = () => {};
+
+function sanitizeModuleColliderSize(size = {}) {
+  return {
+    x: Math.max(0.05, Number(size.x) || 0.05),
+    y: Math.max(0.05, Number(size.y) || 0.05),
+    z: Math.max(0.05, Number(size.z) || 0.05)
+  };
+}
+
+function createModuleColliderMesh(size, enabled) {
+  const sanitized = sanitizeModuleColliderSize(size);
+  const geometry = new THREE.BoxGeometry(sanitized.x, sanitized.y, sanitized.z);
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  });
+  const collider = new THREE.Mesh(geometry, material);
+  collider.name = 'module-collider';
+  collider.castShadow = false;
+  collider.receiveShadow = false;
+  collider.visible = Boolean(enabled);
+  collider.userData = collider.userData || {};
+  collider.userData[MODULE_COLLIDER_FLAG] = true;
+  collider.userData.originalRaycast = collider.raycast;
+  return collider;
+}
+
+function findModuleCollider(mesh) {
+  if (!mesh || !mesh.children) return null;
+  return mesh.children.find((child) => child.userData && child.userData[MODULE_COLLIDER_FLAG]) || null;
+}
+
+function updateModuleColliderGeometry(instance) {
+  if (!instance || !instance.mesh) return;
+  const collider = findModuleCollider(instance.mesh);
+  if (!collider) return;
+  const sanitized = sanitizeModuleColliderSize(instance.size || {});
+  const nextGeometry = new THREE.BoxGeometry(sanitized.x, sanitized.y, sanitized.z);
+  if (collider.geometry) {
+    collider.geometry.dispose();
+  }
+  collider.geometry = nextGeometry;
+}
+
+function setModuleColliderEnabled(instance, enabled) {
+  if (!instance || !instance.mesh) return;
+  const collider = findModuleCollider(instance.mesh);
+  if (!collider) return;
+  collider.visible = Boolean(enabled);
+  collider.material.opacity = 0;
+  collider.material.transparent = true;
+  collider.material.depthWrite = false;
+  collider.raycast = enabled ? (collider.userData?.originalRaycast || THREE.Mesh.prototype.raycast) : noopRaycast;
+}
+
+function ensureModuleCollider(instance, enabled) {
+  if (!instance || !instance.mesh) return;
+  let collider = findModuleCollider(instance.mesh);
+  if (!collider) {
+    collider = createModuleColliderMesh(instance.size || {}, enabled);
+    instance.mesh.add(collider);
+  } else {
+    updateModuleColliderGeometry(instance);
+  }
+  collider.userData = collider.userData || {};
+  collider.userData[MODULE_COLLIDER_FLAG] = true;
+  if (!collider.userData.originalRaycast) {
+    collider.userData.originalRaycast = THREE.Mesh.prototype.raycast;
+  }
+  setModuleColliderEnabled(instance, enabled);
+}
+
 function parseNumberField(value, label, { min = -Infinity, max = Infinity } = {}) {
   const numberValue = Number(value);
   if (!Number.isFinite(numberValue)) {
@@ -1291,6 +1368,7 @@ function applyModuleDefinitionUpdate(definition) {
       mod.mesh.material.roughness = 0.45;
     }
     updateMeshGeometryFromDefinition(mod.mesh, definition);
+    ensureModuleCollider(mod, state.modulesSolid);
 
     updateModuleLabel(mod);
     if (mod.mesh) {
@@ -3151,6 +3229,13 @@ function bindUIEvents() {
   if (ui.modulesSolidToggle) {
     ui.modulesSolidToggle.addEventListener('change', () => {
       state.modulesSolid = ui.modulesSolidToggle.checked;
+      state.modules.forEach((mod) => {
+        if (!findModuleCollider(mod.mesh)) {
+          ensureModuleCollider(mod, state.modulesSolid);
+        } else {
+          setModuleColliderEnabled(mod, state.modulesSolid);
+        }
+      });
       if (state.modulesSolid) {
         separateOverlappingModules();
       }
@@ -3765,6 +3850,7 @@ function addModuleInstance(moduleId) {
 
   scene.add(mesh);
   state.modules.push(instance);
+  ensureModuleCollider(instance, state.modulesSolid);
   clampToBounds(mesh.position, instance);
   syncModuleState(instance);
   updateModuleLabel(instance);
@@ -3778,6 +3864,9 @@ function selectModule(instance) {
   state.selected = instance;
   state.modules.forEach((mod) => {
     mod.mesh.children.forEach((child) => {
+      if (child.userData && child.userData[MODULE_COLLIDER_FLAG]) {
+        return;
+      }
       if (child.material && child.material.opacity !== undefined) {
         child.material.opacity = mod === instance ? 0.85 : 0.4;
       }
@@ -4131,6 +4220,7 @@ function pasteModuleFromClipboard() {
 
   scene.add(mesh);
   state.modules.push(instance);
+  ensureModuleCollider(instance, state.modulesSolid);
   clampToBounds(mesh.position, instance);
   syncModuleState(instance);
   updateModuleLabel(instance);
@@ -4410,7 +4500,7 @@ function intersectModules(event) {
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
   const meshes = state.modules.map((mod) => mod.mesh);
-  return raycaster.intersectObjects(meshes, false);
+  return raycaster.intersectObjects(meshes, true);
 }
 
 function moduleFootprintHalfExtents(mod) {
@@ -4718,6 +4808,12 @@ function removeModule(mod, options = {}) {
   const index = state.modules.indexOf(mod);
   if (index !== -1) {
     disposeModuleLabel(mod);
+    mod.mesh.children.forEach((child) => {
+      if (child.userData && child.userData[MODULE_COLLIDER_FLAG]) {
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+      }
+    });
     scene.remove(mod.mesh);
     mod.mesh.geometry.dispose();
     mod.mesh.material.dispose();
@@ -5090,6 +5186,7 @@ function restoreState(data) {
     scene.add(mesh);
     updateModuleLabel(instance);
     state.modules.push(instance);
+    ensureModuleCollider(instance, state.modulesSolid);
   });
 
   rebuildFusionGroupsFromState();
