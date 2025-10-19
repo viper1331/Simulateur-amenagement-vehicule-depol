@@ -4678,7 +4678,8 @@ function prepareFusionDrag(module) {
 }
 
 function onPointerDown(event) {
-  if (event.button === 2 || event.ctrlKey) {
+  if (event.button === 1) {
+    event.preventDefault();
     orbitState.active = true;
     orbitState.pointer.set(event.clientX, event.clientY);
     orbitState.pointerId = event.pointerId;
