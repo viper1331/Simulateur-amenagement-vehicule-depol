@@ -1166,6 +1166,7 @@ function applyModuleDefinitionUpdate(definition) {
     updateModuleList();
     updateSelectionDetails();
     updateAnalysis();
+    requestPlanViewUpdate();
     pushHistory();
   }
 }
@@ -1283,8 +1284,27 @@ const DEFAULT_ORBIT_AZIMUTH = Math.PI / 4;
 const DEFAULT_ORBIT_POLAR = Math.PI / 4;
 const DEFAULT_ORBIT_RADIUS = 14;
 const DEFAULT_ORBIT_TARGET_Y = 1.2;
+const PLAN_VIEW_DEFAULT_HALF_WIDTH = 4;
+const PLAN_VIEW_DEFAULT_HALF_LENGTH = 6;
+const PLAN_VIEW_MARGIN = 1.5;
+const PLAN_CAMERA_HEIGHT = 28;
+const PLAN_POPUP_FEATURES = 'width=720,height=640,resizable=yes';
 
 let scene, camera, renderer, grid, hemiLight, dirLight;
+let planRenderer = null;
+let planCamera = null;
+const planViewportSize = new THREE.Vector2();
+const planCameraTarget = new THREE.Vector3();
+const planViewState = {
+  hostElement: null,
+  hostWindow: window,
+  resizeObserver: null,
+  windowRef: null,
+  windowUnloadHandler: null,
+  windowResizeHandler: null,
+  isDetached: false,
+  needsProjectionUpdate: true
+};
 let raycaster, pointer, dragPlane, dragActive = false;
 let dragOffset = new THREE.Vector3();
 let dragMode = 'horizontal';
@@ -1908,6 +1928,295 @@ function updateHandleDrag(event) {
   updateHandleHud();
 }
 
+function requestPlanViewUpdate() {
+  planViewState.needsProjectionUpdate = true;
+}
+
+function updatePlanDetachUi() {
+  if (ui.planPanel) {
+    ui.planPanel.classList.toggle('is-detached', planViewState.isDetached);
+  }
+  if (ui.planDetachButton) {
+    ui.planDetachButton.textContent = planViewState.isDetached ? 'Rattacher la vue' : 'Détacher';
+    ui.planDetachButton.title = planViewState.isDetached
+      ? 'Rattacher la vue en plan à la fenêtre principale'
+      : 'Ouvrir la vue en plan dans une nouvelle fenêtre';
+  }
+}
+
+function updatePlanRendererSize() {
+  if (!planRenderer || !planViewState.hostElement) return;
+  const rect = planViewState.hostElement.getBoundingClientRect();
+  const fallbackWidth = planViewState.hostElement.clientWidth || 320;
+  const fallbackHeight = planViewState.hostElement.clientHeight || 240;
+  const width = Math.max(120, Math.round(rect.width || fallbackWidth || 0));
+  const height = Math.max(120, Math.round(rect.height || fallbackHeight || 0));
+  const pixelRatio = planViewState.hostWindow?.devicePixelRatio || window.devicePixelRatio || 1;
+  planRenderer.setPixelRatio(pixelRatio);
+  planRenderer.setSize(width, height, false);
+  requestPlanViewUpdate();
+}
+
+function handlePlanContainerResize(entries) {
+  if (!planRenderer) return;
+  if (!Array.isArray(entries) || entries.length === 0) {
+    updatePlanRendererSize();
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry) continue;
+    if (!planViewState.hostElement || entry.target === planViewState.hostElement) {
+      updatePlanRendererSize();
+      break;
+    }
+  }
+}
+
+function observePlanHost(element, ownerWindow = window) {
+  if (planViewState.resizeObserver) {
+    try {
+      planViewState.resizeObserver.disconnect();
+    } catch (error) {
+      /* noop */
+    }
+    planViewState.resizeObserver = null;
+  }
+  if (!element) {
+    return;
+  }
+  const ResizeObserverCtor = ownerWindow.ResizeObserver || window.ResizeObserver;
+  if (typeof ResizeObserverCtor === 'function') {
+    planViewState.resizeObserver = new ResizeObserverCtor(handlePlanContainerResize);
+    planViewState.resizeObserver.observe(element);
+  }
+}
+
+function setPlanHostElement(element, ownerWindow = window) {
+  if (!planRenderer || !element) {
+    return;
+  }
+  planViewState.hostElement = element;
+  planViewState.hostWindow = ownerWindow || window;
+  planRenderer.domElement.style.width = '100%';
+  planRenderer.domElement.style.height = '100%';
+  planRenderer.domElement.style.display = 'block';
+  element.appendChild(planRenderer.domElement);
+  observePlanHost(element, planViewState.hostWindow);
+  updatePlanRendererSize();
+}
+
+function computePlanViewExtents() {
+  let centerX = 0;
+  let centerZ = 0;
+  let halfWidth = PLAN_VIEW_DEFAULT_HALF_WIDTH;
+  let halfLength = PLAN_VIEW_DEFAULT_HALF_LENGTH;
+
+  if (state.chassisData) {
+    const chassisWidth = Number.isFinite(state.chassisData.width)
+      ? state.chassisData.width
+      : (Number.isFinite(state.chassisData.usableWidth) ? state.chassisData.usableWidth : PLAN_VIEW_DEFAULT_HALF_WIDTH * 2);
+    const chassisLength = Number.isFinite(state.chassisData.length)
+      ? state.chassisData.length
+      : (Number.isFinite(state.chassisData.usableLength) ? state.chassisData.usableLength : PLAN_VIEW_DEFAULT_HALF_LENGTH * 2);
+    halfWidth = Math.max(halfWidth, chassisWidth / 2);
+    halfLength = Math.max(halfLength, chassisLength / 2);
+    if (Number.isFinite(state.chassisData.usableCenterOffsetX)) {
+      centerX = state.chassisData.usableCenterOffsetX;
+    }
+    if (Number.isFinite(state.chassisData.usableCenterOffsetZ)) {
+      centerZ = state.chassisData.usableCenterOffsetZ;
+    }
+  }
+
+  let minX = centerX - halfWidth;
+  let maxX = centerX + halfWidth;
+  let minZ = centerZ - halfLength;
+  let maxZ = centerZ + halfLength;
+
+  const walkway = getWalkwayBounds();
+  if (walkway) {
+    minX = Math.min(minX, walkway.centerX - walkway.width / 2);
+    maxX = Math.max(maxX, walkway.centerX + walkway.width / 2);
+    minZ = Math.min(minZ, walkway.centerZ - walkway.length / 2);
+    maxZ = Math.max(maxZ, walkway.centerZ + walkway.length / 2);
+  }
+
+  state.modules.forEach((mod) => {
+    if (!mod) return;
+    const mesh = mod.mesh;
+    let modCenterX;
+    let modCenterZ;
+    if (mesh && mesh.position) {
+      modCenterX = mesh.position.x;
+      modCenterZ = mesh.position.z;
+    } else if (Array.isArray(mod.position)) {
+      modCenterX = Number(mod.position[0]) || 0;
+      modCenterZ = Number(mod.position[2]) || 0;
+    } else {
+      modCenterX = Number(mod.position?.x) || 0;
+      modCenterZ = Number(mod.position?.z) || 0;
+    }
+    const footprint = moduleFootprintHalfExtents(mod);
+    minX = Math.min(minX, modCenterX - footprint.halfX);
+    maxX = Math.max(maxX, modCenterX + footprint.halfX);
+    minZ = Math.min(minZ, modCenterZ - footprint.halfZ);
+    maxZ = Math.max(maxZ, modCenterZ + footprint.halfZ);
+  });
+
+  halfWidth = Math.max(halfWidth, (maxX - minX) / 2);
+  halfLength = Math.max(halfLength, (maxZ - minZ) / 2);
+  centerX = (minX + maxX) / 2;
+  centerZ = (minZ + maxZ) / 2;
+
+  halfWidth += PLAN_VIEW_MARGIN;
+  halfLength += PLAN_VIEW_MARGIN;
+
+  return { halfWidth, halfLength, centerX, centerZ };
+}
+
+function updatePlanCameraProjection() {
+  if (!planCamera || !planRenderer) {
+    return;
+  }
+  const size = planRenderer.getSize(planViewportSize);
+  const aspect = size.y > 0 ? size.x / size.y : 1;
+  const { halfWidth, halfLength, centerX, centerZ } = computePlanViewExtents();
+  let viewHalfWidth = halfWidth;
+  let viewHalfLength = halfLength;
+  if (aspect > 0) {
+    if (viewHalfWidth / viewHalfLength > aspect) {
+      viewHalfLength = viewHalfWidth / aspect;
+    } else {
+      viewHalfWidth = viewHalfLength * aspect;
+    }
+  }
+  planCamera.left = -viewHalfWidth;
+  planCamera.right = viewHalfWidth;
+  planCamera.top = viewHalfLength;
+  planCamera.bottom = -viewHalfLength;
+  planCameraTarget.set(centerX, 0, centerZ);
+  planCamera.position.set(centerX, PLAN_CAMERA_HEIGHT, centerZ);
+  planCamera.lookAt(planCameraTarget);
+  planCamera.updateProjectionMatrix();
+  planViewState.needsProjectionUpdate = false;
+}
+
+function initPlanView() {
+  if (planRenderer) {
+    return;
+  }
+  const container = document.getElementById('plan-canvas-container');
+  if (!container) {
+    return;
+  }
+  planRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  planRenderer.setClearColor(0x000000, 0);
+  planRenderer.domElement.style.touchAction = 'none';
+  planRenderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
+  planCamera = new THREE.OrthographicCamera(
+    -PLAN_VIEW_DEFAULT_HALF_WIDTH,
+    PLAN_VIEW_DEFAULT_HALF_WIDTH,
+    PLAN_VIEW_DEFAULT_HALF_LENGTH,
+    -PLAN_VIEW_DEFAULT_HALF_LENGTH,
+    0.1,
+    500
+  );
+  planCamera.up.set(0, 0, -1);
+  setPlanHostElement(container, window);
+  requestPlanViewUpdate();
+}
+
+function detachPlanView() {
+  if (!planRenderer) {
+    initPlanView();
+  }
+  if (!planRenderer || planViewState.isDetached) {
+    return;
+  }
+  const planWindow = window.open('', 'plan-view', PLAN_POPUP_FEATURES);
+  if (!planWindow) {
+    showModal('Information', 'Impossible d\'ouvrir la vue en plan dans une fenêtre séparée. Veuillez autoriser les fenêtres pop-up.');
+    return;
+  }
+  planWindow.document.write(`<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Vue en plan - Simulateur</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; background: #0a0c12; color: #f3f6ff; font-family: "Segoe UI", Roboto, sans-serif; }
+    .popup-root { display: flex; flex-direction: column; height: 100vh; }
+    .popup-header { display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.8rem; background: #141b2a; border-bottom: 1px solid rgba(62,166,255,0.25); font-weight: 600; font-size: 0.95rem; }
+    .popup-host { flex: 1; position: relative; background: #0a0f16; }
+    .popup-host canvas { width: 100%; height: 100%; display: block; }
+    button { background: #3ea6ff; border: none; color: #f3f6ff; border-radius: 6px; padding: 0.35rem 0.7rem; font-size: 0.85rem; cursor: pointer; font-weight: 600; }
+    button:hover { background: #2a7bd6; }
+  </style>
+</head>
+<body>
+  <div class="popup-root">
+    <div class="popup-header">
+      <span>Vue en plan</span>
+      <button id="plan-popup-close" type="button">Rattacher</button>
+    </div>
+    <div id="plan-popup-host" class="popup-host"></div>
+  </div>
+</body>
+</html>`);
+  planWindow.document.close();
+  const host = planWindow.document.getElementById('plan-popup-host');
+  if (!host) {
+    planWindow.close();
+    return;
+  }
+  const closeButton = planWindow.document.getElementById('plan-popup-close');
+  if (closeButton) {
+    closeButton.addEventListener('click', () => {
+      reattachPlanView();
+    });
+  }
+  const unloadHandler = () => {
+    reattachPlanView({ fromWindow: true });
+  };
+  planWindow.addEventListener('beforeunload', unloadHandler);
+  const resizeHandler = () => updatePlanRendererSize();
+  planWindow.addEventListener('resize', resizeHandler);
+  planViewState.windowRef = planWindow;
+  planViewState.windowUnloadHandler = unloadHandler;
+  planViewState.windowResizeHandler = resizeHandler;
+  planViewState.isDetached = true;
+  setPlanHostElement(host, planWindow);
+  updatePlanDetachUi();
+  requestPlanViewUpdate();
+}
+
+function reattachPlanView(options = {}) {
+  if (!planRenderer || !planViewState.isDetached) {
+    return;
+  }
+  const host = document.getElementById('plan-canvas-container');
+  if (host) {
+    setPlanHostElement(host, window);
+  }
+  const closingWindow = planViewState.windowRef;
+  if (closingWindow && planViewState.windowUnloadHandler) {
+    closingWindow.removeEventListener('beforeunload', planViewState.windowUnloadHandler);
+  }
+  if (closingWindow && planViewState.windowResizeHandler) {
+    closingWindow.removeEventListener('resize', planViewState.windowResizeHandler);
+  }
+  planViewState.windowRef = null;
+  planViewState.windowUnloadHandler = null;
+  planViewState.windowResizeHandler = null;
+  planViewState.isDetached = false;
+  updatePlanDetachUi();
+  requestPlanViewUpdate();
+  if (!options.fromWindow && closingWindow && !closingWindow.closed) {
+    closingWindow.close();
+  }
+}
+
 function initScene() {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0a0c12);
@@ -1957,6 +2266,8 @@ function initScene() {
 
   walkwayMesh = createWalkwayMesh(state.walkwayWidth, DEFAULT_WALKWAY_LENGTH, state.walkwayVisible);
   scene.add(walkwayMesh);
+
+  initPlanView();
 
   raycaster = new THREE.Raycaster();
   pointer = new THREE.Vector2();
@@ -2109,6 +2420,7 @@ function applyWalkwayOffset(width, length) {
   walkwayMesh.position.set(baseX + state.walkwayOffsetX, WALKWAY_VISUAL_OFFSET, baseZ + state.walkwayOffsetZ);
   syncWalkwayPositionControls(width, length, limits);
   relocateModulesInsideBounds();
+  requestPlanViewUpdate();
 }
 
 function syncChassisTransparencyControls() {
@@ -2165,6 +2477,7 @@ function updateWalkway() {
   walkwayMesh.rotation.x = -Math.PI / 2;
   walkwayMesh.visible = state.walkwayVisible;
   applyWalkwayOffset(width, length);
+  requestPlanViewUpdate();
 }
 
 function initUI() {
@@ -2192,6 +2505,10 @@ function initUI() {
   ui.chassisTransparencyRange = document.getElementById('chassis-transparency');
   ui.chassisTransparencyValue = document.getElementById('chassis-transparency-value');
   ui.btnRecenterView = document.getElementById('btn-recenter-view');
+  ui.planPanel = document.getElementById('plan-panel');
+  ui.planDetachButton = document.getElementById('plan-detach-btn');
+  ui.planDetachedMessage = document.getElementById('plan-detached-message');
+  ui.planCanvasContainer = document.getElementById('plan-canvas-container');
   ui.detailName = document.getElementById('detail-name');
   ui.detailMass = document.getElementById('detail-mass');
   ui.detailCapacity = document.getElementById('detail-capacity');
@@ -2279,6 +2596,7 @@ function initUI() {
   syncChassisTransparencyControls();
 
   updateModuleList();
+  updatePlanDetachUi();
   bindUIEvents();
 }
 
@@ -2706,6 +3024,16 @@ function bindUIEvents() {
     });
   }
 
+  if (ui.planDetachButton) {
+    ui.planDetachButton.addEventListener('click', () => {
+      if (planViewState.isDetached) {
+        reattachPlanView();
+      } else {
+        detachPlanView();
+      }
+    });
+  }
+
   window.addEventListener('resize', onResize);
   renderer.domElement.addEventListener('pointerdown', onPointerDown);
   renderer.domElement.addEventListener('pointermove', onPointerMove);
@@ -2760,6 +3088,7 @@ function bindUIEvents() {
     state.walkwayVisible = ui.walkwayToggle.checked;
     walkwayMesh.visible = state.walkwayVisible;
     updateAnalysis();
+    requestPlanViewUpdate();
     pushHistory();
   });
 
@@ -3090,11 +3419,18 @@ function onResize() {
   renderer.setSize(getViewportWidth(), getViewportHeight());
   camera.aspect = getViewportRatio();
   camera.updateProjectionMatrix();
+  updatePlanRendererSize();
 }
 
 function animate() {
   requestAnimationFrame(animate);
   renderer.render(scene, camera);
+  if (planRenderer && planCamera) {
+    if (planViewState.needsProjectionUpdate) {
+      updatePlanCameraProjection();
+    }
+    planRenderer.render(scene, planCamera);
+  }
 }
 
 function applyChassis(chassis) {
@@ -3147,6 +3483,7 @@ function applyChassis(chassis) {
   resetOrbitToChassis();
   relocateModulesInsideBounds();
   updateAnalysis();
+  requestPlanViewUpdate();
 }
 
 function updateWorkspaceBounds(chassis) {
@@ -3158,6 +3495,7 @@ function updateWorkspaceBounds(chassis) {
   const min = new THREE.Vector3(offsetX - usableWidth / 2, 0, offsetZ - usableLength / 2);
   const max = new THREE.Vector3(offsetX + usableWidth / 2, usableHeight * 3, offsetZ + usableLength / 2);
   workspaceBounds.set(min, max);
+  requestPlanViewUpdate();
 }
 
 function updateGabaritPlanes(chassis) {
@@ -3247,6 +3585,7 @@ function addModuleInstance(moduleId) {
   updateModuleLabel(instance);
   selectModule(instance);
   updateAnalysis();
+  requestPlanViewUpdate();
   pushHistory();
 }
 
@@ -3760,6 +4099,7 @@ function onPointerMove(event) {
     syncModuleState(state.selected);
     updateSelectionDetails();
     updateAnalysis();
+    requestPlanViewUpdate();
   } else if (dragKind === 'module-rotate') {
     const delta = event.movementX;
     const rotationStep = degToRad(5);
@@ -3769,6 +4109,7 @@ function onPointerMove(event) {
     syncModuleState(state.selected);
     updateSelectionDetails();
     updateAnalysis();
+    requestPlanViewUpdate();
   }
 }
 
@@ -4083,6 +4424,7 @@ function relocateModulesInsideBounds() {
     syncModuleState(mod);
   });
   updateSelectionDetails();
+  requestPlanViewUpdate();
 }
 
 function separateOverlappingModules() {
@@ -4096,6 +4438,7 @@ function separateOverlappingModules() {
   });
   updateSelectionDetails();
   updateAnalysis();
+  requestPlanViewUpdate();
 }
 
 function isEventFromEditableField(target) {
@@ -4165,6 +4508,7 @@ function removeModule(mod, options = {}) {
       pushHistory();
     }
     updateFusionButtonState();
+    requestPlanViewUpdate();
   }
 }
 
